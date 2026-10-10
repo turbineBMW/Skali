@@ -220,6 +220,7 @@ pub fn document_page(
             content: document.content.clone(),
             attachments: document.content_attachments.clone(),
             comments_count: document.recording.comments_count,
+            boosts_count: document.recording.boosts_count,
             extra_html: String::new(),
         },
     )
@@ -262,6 +263,7 @@ pub fn upload_page(window: &SkaliWindow, client: Client, upload: Upload) -> adw:
             content,
             attachments: vec![attachment],
             comments_count: upload.recording.comments_count,
+            boosts_count: upload.recording.boosts_count,
             extra_html: String::new(),
         },
     )

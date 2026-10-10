@@ -266,6 +266,7 @@ pub fn card_page(window: &SkaliWindow, client: Client, card: Card) -> adw::Navig
             content,
             attachments: card.content_attachments.clone(),
             comments_count: card.recording.comments_count,
+            boosts_count: card.recording.boosts_count,
             extra_html: steps_html(&card.steps),
         },
     );

@@ -10,12 +10,18 @@ use adw::prelude::*;
 use gtk::gdk;
 use gtk::glib;
 use skali_core::darkmode;
+use std::cell::RefCell;
+use std::rc::Rc;
 use webkit::prelude::*;
 
 const EXTERNAL_SCHEMES: [&str; 3] = ["http", "https", "mailto"];
 
+/// Who takes a document's `skali:` links (`links::PageAction`).
+type ActionHandler = Rc<RefCell<Option<Box<dyn Fn(&str)>>>>;
+
 pub struct RichTextView {
     view: webkit::WebView,
+    on_action: ActionHandler,
 }
 
 impl Default for RichTextView {
@@ -40,8 +46,18 @@ impl RichTextView {
         }
         // The window's own background shows through.
         view.set_background_color(&gdk::RGBA::new(0.0, 0.0, 0.0, 0.0));
-        view.connect_decide_policy(|view, decision, _| decide_policy(view, decision));
-        Self { view }
+        let on_action = ActionHandler::default();
+        view.connect_decide_policy(glib::clone!(
+            #[strong]
+            on_action,
+            move |view, decision, _| decide_policy(view, decision, &on_action)
+        ));
+        Self { view, on_action }
+    }
+
+    /// Take the document's `skali:` links, the page's own controls.
+    pub fn connect_action(&self, handler: impl Fn(&str) + 'static) {
+        *self.on_action.borrow_mut() = Some(Box::new(handler));
     }
 
     pub fn widget(&self) -> &webkit::WebView {
@@ -112,6 +128,13 @@ fn document(body: &str) -> String {
          .avatar, .initials {{ width: 32px; height: 32px; border-radius: 50%; flex: none; object-fit: cover; }}\
          .initials {{ display: inline-flex; align-items: center; justify-content: center; background: {accent}; color: white; font-weight: 600; }}\
          .comment .body {{ margin-left: 42px; }}\
+         .boosts {{ display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 0; }}\
+         .comment .boosts {{ margin-left: 42px; }}\
+         .boost {{ display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border: 1px solid {border}; border-radius: 999px; font-size: 0.9em; color: {text}; text-decoration: none; }}\
+         .boost small {{ color: {dim}; }}\
+         a.boost.mine {{ border-color: {accent}; }}\
+         a.boost.add {{ color: {dim}; border-style: dashed; }}\
+         .comment a.boost.add {{ visibility: hidden; }} .comment:hover a.boost.add {{ visibility: visible; }}\
          .comment:target {{ background: {code_bg}; border-radius: 8px; padding: 8px; margin: 0 -8px 20px; }}\
          </style></head><body>{body}</body></html>",
         scheme = if is_dark() { "dark" } else { "light" },
@@ -136,7 +159,11 @@ fn scheme_of(uri: &str) -> String {
 /// The view renders one document and never navigates: a link click opens
 /// in Skali or the browser, anything else is refused. load_html's own
 /// document arrives as about:blank (with the anchor), or with no URI.
-fn decide_policy(view: &webkit::WebView, decision: &webkit::PolicyDecision) -> bool {
+fn decide_policy(
+    view: &webkit::WebView,
+    decision: &webkit::PolicyDecision,
+    on_action: &ActionHandler,
+) -> bool {
     let Some((kind, uri)) = navigation_of(decision) else {
         return false;
     };
@@ -150,6 +177,13 @@ fn decide_policy(view: &webkit::WebView, decision: &webkit::PolicyDecision) -> b
         return true;
     }
     decision.ignore();
+    if scheme == "skali" {
+        match &*on_action.borrow() {
+            Some(handler) => handler(&uri),
+            None => tracing::warn!("no one takes {uri}"),
+        }
+        return true;
+    }
     if !EXTERNAL_SCHEMES.contains(&scheme.as_str()) {
         tracing::warn!("blocked a rich-text link with scheme {scheme:?}");
         return true;

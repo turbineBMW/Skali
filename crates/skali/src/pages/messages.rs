@@ -156,6 +156,7 @@ pub fn message_page(window: &SkaliWindow, client: Client, message: Message) -> a
             content: message.content.clone(),
             attachments: message.content_attachments.clone(),
             comments_count: message.recording.comments_count,
+            boosts_count: message.recording.boosts_count,
             extra_html: String::new(),
         },
     )

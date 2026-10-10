@@ -2,7 +2,8 @@
 //! an upload -- as one document in a rich-text view, with the comment
 //! composer along the bottom. Images are fetched with the sign-in and
 //! inlined; the document is rendered again as they arrive, and as
-//! comments do.
+//! comments do. Boosts sit under the body and each comment; the header
+//! bookmarks the recording and subscribes to it.
 
 use super::{avatar, count_label, shell_with_header, time_label};
 use crate::i18n::gettext;
@@ -13,7 +14,8 @@ use crate::window::SkaliWindow;
 use adw::prelude::*;
 use gtk::glib;
 use skali_core::api::Client;
-use skali_core::models::{Attachment, Comment, Person};
+use skali_core::links::PageAction;
+use skali_core::models::{Attachment, BookmarkState, Boost, Comment, Person, Subscription};
 use skali_core::richtext;
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
@@ -29,6 +31,7 @@ pub struct RecordingDoc {
     pub content: String,
     pub attachments: Vec<Attachment>,
     pub comments_count: i64,
+    pub boosts_count: i64,
     /// HTML shown between the body and the comments: a card's steps.
     pub extra_html: String,
 }
@@ -41,6 +44,8 @@ pub struct RecordingPage {
     /// `data:` URIs by attachment sgid, once fetched.
     images: RefCell<HashMap<String, String>>,
     fetching: RefCell<HashSet<String>>,
+    /// Boosts by the recording they're on: the body's, each comment's.
+    boosts: RefCell<HashMap<i64, Vec<Boost>>>,
     /// `RecordingDoc::extra_html`, as last set.
     extra_html: RefCell<String>,
     /// The comment a link to it asked to see, scrolled to on every render.
@@ -92,6 +97,7 @@ impl RecordingPage {
             "<article>{}</article>",
             richtext::expand_attachments(&self.doc.content, resolve)
         );
+        body.push_str(&self.boosts_html(self.doc.id));
         body.push_str(&self.extra_html.borrow());
         let comments = self.comments.borrow();
         let count = comments.len().max(self.doc.comments_count as usize);
@@ -124,16 +130,257 @@ impl RecordingPage {
                 ),
             };
             body.push_str(&format!(
-                "<div class=\"comment\" id=\"c{}\"><div class=\"byline\">{avatar}<b>{}</b><time>{}</time></div><div class=\"body\">{}</div></div>",
+                "<div class=\"comment\" id=\"c{}\"><div class=\"byline\">{avatar}<b>{}</b><time>{}</time></div><div class=\"body\">{}</div>{}</div>",
                 comment.recording.id,
                 richtext::escape(&person.name),
                 richtext::escape(&time_label(comment.recording.created_at)),
-                richtext::expand_attachments(&comment.content, resolve)
+                richtext::expand_attachments(&comment.content, resolve),
+                self.boosts_html(comment.recording.id)
             ));
         }
         body.push_str("</section>");
         let anchor = self.focus.get().map(|id| format!("c{id}"));
         self.view.set_document(&body, anchor.as_deref());
+    }
+
+    /// The boosts on one recording as chips: yours take the boost back,
+    /// and the last one adds a boost.
+    fn boosts_html(&self, recording: i64) -> String {
+        let boosts = self.boosts.borrow();
+        let list = boosts
+            .get(&recording)
+            .map(Vec::as_slice)
+            .unwrap_or_default();
+        let can_write = self.client.writes_allowed();
+        if list.is_empty() && !can_write {
+            return String::new();
+        }
+        let me = self.me();
+        let mut html = String::from("<div class=\"boosts\">");
+        for boost in list {
+            let content = richtext::escape(&boost.content);
+            let name = richtext::escape(&boost.booster.name);
+            if can_write && me == Some(boost.booster.id) {
+                let action = PageAction::Unboost {
+                    recording,
+                    boost: boost.id,
+                };
+                html.push_str(&format!(
+                    "<a class=\"boost mine\" href=\"{}\" title=\"{}\">{content} <small>{name}</small></a>",
+                    action.uri(),
+                    richtext::escape(&gettext("Take your boost back"))
+                ));
+            } else {
+                html.push_str(&format!(
+                    "<span class=\"boost\">{content} <small>{name}</small></span>"
+                ));
+            }
+        }
+        if can_write {
+            html.push_str(&format!(
+                "<a class=\"boost add\" href=\"{}\">{}</a>",
+                PageAction::Boost(recording).uri(),
+                richtext::escape(&gettext("+ Boost"))
+            ));
+        }
+        html.push_str("</div>");
+        html
+    }
+
+    /// Your person id in this account, once the window knows it.
+    fn me(&self) -> Option<i64> {
+        self.window
+            .upgrade()?
+            .my_person_id(self.client.account_id())
+    }
+
+    /// Whether `recording` is the body or a comment shown here: a `skali:`
+    /// link about anything else didn't come from this page.
+    fn shows(&self, recording: i64) -> bool {
+        recording == self.doc.id
+            || self
+                .comments
+                .borrow()
+                .iter()
+                .any(|c| c.recording.id == recording)
+    }
+
+    fn fetch_boosts(self: &Rc<Self>, recording: i64) {
+        let client = self.client.clone();
+        let path = format!("/recordings/{recording}/boosts.json");
+        rt::run(
+            async move { client.get_all::<Boost>(&path).await },
+            glib::clone!(
+                #[strong(rename_to = page)]
+                self,
+                move |result| match result {
+                    Ok(boosts) => {
+                        page.boosts.borrow_mut().insert(recording, boosts);
+                        page.render();
+                    }
+                    Err(error) =>
+                        tracing::warn!("could not load the boosts on {recording}: {error}"),
+                }
+            ),
+        );
+    }
+
+    /// A `skali:` link in the document was clicked.
+    fn act(self: &Rc<Self>, uri: &str) {
+        match PageAction::parse(uri) {
+            Some(PageAction::Boost(recording)) if self.shows(recording) => {
+                self.boost_dialog(recording)
+            }
+            Some(PageAction::Unboost { recording, boost })
+                if self.is_my_boost(recording, boost) =>
+            {
+                self.unboost(recording, boost)
+            }
+            _ => tracing::warn!("ignored a page link: {uri}"),
+        }
+    }
+
+    fn is_my_boost(&self, recording: i64, boost: i64) -> bool {
+        let me = self.me();
+        me.is_some()
+            && self.boosts.borrow().get(&recording).is_some_and(|boosts| {
+                boosts
+                    .iter()
+                    .any(|b| b.id == boost && Some(b.booster.id) == me)
+            })
+    }
+
+    /// Ask what to boost with: one of a few emoji, or up to 16 characters.
+    fn boost_dialog(self: &Rc<Self>, recording: i64) {
+        let Some(window) = self.window.upgrade() else {
+            return;
+        };
+        let dialog = adw::AlertDialog::builder()
+            .heading(gettext("Boost"))
+            .close_response("cancel")
+            .default_response("boost")
+            .build();
+        dialog.add_response("cancel", &gettext("Cancel"));
+        dialog.add_response("boost", &gettext("Boost"));
+        dialog.set_response_appearance("boost", adw::ResponseAppearance::Suggested);
+        dialog.set_response_enabled("boost", false);
+        let entry = gtk::Entry::builder()
+            .max_length(16)
+            .placeholder_text(gettext("Or type a few words"))
+            .activates_default(true)
+            .build();
+        entry.connect_changed(glib::clone!(
+            #[weak]
+            dialog,
+            move |entry| dialog.set_response_enabled("boost", !entry.text().trim().is_empty())
+        ));
+        let quick = gtk::Box::builder()
+            .spacing(6)
+            .halign(gtk::Align::Center)
+            .build();
+        for emoji in ["👍", "❤️", "🎉", "👏", "😂", "🙌"] {
+            let button = gtk::Button::builder()
+                .label(emoji)
+                .css_classes(["flat", "title-3"])
+                .build();
+            button.connect_clicked(glib::clone!(
+                #[strong(rename_to = page)]
+                self,
+                #[weak]
+                dialog,
+                move |_| {
+                    page.boost(recording, emoji.to_string());
+                    dialog.close();
+                }
+            ));
+            quick.append(&button);
+        }
+        let column = gtk::Box::new(gtk::Orientation::Vertical, 12);
+        column.append(&quick);
+        column.append(&entry);
+        dialog.set_extra_child(Some(&column));
+        dialog.connect_response(
+            Some("boost"),
+            glib::clone!(
+                #[strong(rename_to = page)]
+                self,
+                #[weak]
+                entry,
+                move |_, _| {
+                    let text = entry.text().trim().to_string();
+                    if !text.is_empty() {
+                        page.boost(recording, text);
+                    }
+                }
+            ),
+        );
+        dialog.present(Some(&window));
+        // Typing goes into the words; the emoji are a click (or Tab) away.
+        dialog.set_focus(Some(&entry));
+    }
+
+    fn boost(self: &Rc<Self>, recording: i64, content: String) {
+        let client = self.client.clone();
+        let path = format!("/recordings/{recording}/boosts.json");
+        rt::run(
+            async move {
+                client
+                    .post::<Boost, _>(&path, &serde_json::json!({ "content": content }))
+                    .await
+            },
+            glib::clone!(
+                #[strong(rename_to = page)]
+                self,
+                move |result| match result {
+                    Ok(boost) => {
+                        page.boosts
+                            .borrow_mut()
+                            .entry(recording)
+                            .or_default()
+                            .push(boost);
+                        page.show_after_boost(recording);
+                    }
+                    Err(error) => {
+                        if let Some(window) = page.window.upgrade() {
+                            window.report(&format!("could not boost {recording}"), &error);
+                        }
+                    }
+                }
+            ),
+        );
+    }
+
+    fn unboost(self: &Rc<Self>, recording: i64, boost: i64) {
+        let client = self.client.clone();
+        rt::run(
+            async move { client.delete(&format!("/boosts/{boost}.json")).await },
+            glib::clone!(
+                #[strong(rename_to = page)]
+                self,
+                move |result| match result {
+                    Ok(()) => {
+                        if let Some(boosts) = page.boosts.borrow_mut().get_mut(&recording) {
+                            boosts.retain(|b| b.id != boost);
+                        }
+                        page.show_after_boost(recording);
+                    }
+                    Err(error) => {
+                        if let Some(window) = page.window.upgrade() {
+                            window.report(&format!("could not take back boost {boost}"), &error);
+                        }
+                    }
+                }
+            ),
+        );
+    }
+
+    /// Draw again, staying at the comment that changed rather than going
+    /// back to the top.
+    fn show_after_boost(&self, recording: i64) {
+        if recording != self.doc.id {
+            self.focus.set(Some(recording));
+        }
+        self.render();
     }
 
     /// Fetch the images among `attachments` with the sign-in, once each,
@@ -211,6 +458,7 @@ pub fn recording_page_parts(
 
     let attachments = doc.attachments.clone();
     let comments_count = doc.comments_count;
+    let boosts_count = doc.boosts_count;
     let recording_id = doc.id;
     let page_title = doc.title.clone();
     let extra_html = std::mem::take(&mut doc.extra_html);
@@ -221,13 +469,22 @@ pub fn recording_page_parts(
         comments: RefCell::new(Vec::new()),
         images: RefCell::new(HashMap::new()),
         fetching: RefCell::new(HashSet::new()),
+        boosts: RefCell::new(HashMap::new()),
         extra_html: RefCell::new(extra_html),
         focus: Cell::new(None),
         view,
     });
     window.watch_recording(&page);
+    page.view.connect_action(glib::clone!(
+        #[weak]
+        page,
+        move |uri| page.act(uri)
+    ));
     page.fetch_images(&attachments);
     page.render();
+    if boosts_count > 0 {
+        page.fetch_boosts(recording_id);
+    }
 
     if comments_count > 0 {
         let path = format!("/recordings/{recording_id}/comments.json");
@@ -240,6 +497,9 @@ pub fn recording_page_parts(
                     Ok(comments) => {
                         for comment in &comments {
                             page.fetch_images(&comment.content_attachments);
+                            if comment.recording.boosts_count > 0 {
+                                page.fetch_boosts(comment.recording.id);
+                            }
                         }
                         page.comments.borrow_mut().extend(comments);
                         page.render();
@@ -264,7 +524,141 @@ pub fn recording_page_parts(
             .build();
         toolbar.add_bottom_bar(&composer_clamp);
     }
+    header_toggles(&page, &header);
     (nav_page, header, page)
+}
+
+/// Bookmark and subscribe, as toggles that follow Basecamp: each starts
+/// from the recording's state and puts itself back if a change fails.
+fn header_toggles(page: &Rc<RecordingPage>, header: &adw::HeaderBar) {
+    let id = page.doc.id;
+    let bookmark = RemoteToggle {
+        path: format!("/recordings/{id}/bookmark.json"),
+        on_icon: "starred-symbolic",
+        off_icon: "non-starred-symbolic",
+        on_tip: gettext("Bookmarked"),
+        off_tip: gettext("Bookmark"),
+        what: "bookmark",
+    };
+    let subscribe = RemoteToggle {
+        path: format!("/recordings/{id}/subscription.json"),
+        on_icon: "preferences-system-notifications-symbolic",
+        off_icon: "notifications-disabled-symbolic",
+        on_tip: gettext("Subscribed: you're notified of new comments"),
+        off_tip: gettext("Not subscribed"),
+        what: "subscription",
+    };
+    header.pack_end(&subscribe.build(page, |json: &str| {
+        serde_json::from_str::<Subscription>(json).map(|s| s.subscribed)
+    }));
+    header.pack_end(&bookmark.build(page, |json: &str| {
+        serde_json::from_str::<BookmarkState>(json).map(|b| b.bookmarked)
+    }));
+}
+
+/// A header toggle for a yes/no that lives in Basecamp at `path`: GET
+/// reads it, POST turns it on, DELETE off.
+struct RemoteToggle {
+    path: String,
+    on_icon: &'static str,
+    off_icon: &'static str,
+    on_tip: String,
+    off_tip: String,
+    /// For the log: "bookmark", "subscription".
+    what: &'static str,
+}
+
+impl RemoteToggle {
+    fn build(
+        self,
+        page: &Rc<RecordingPage>,
+        read: fn(&str) -> serde_json::Result<bool>,
+    ) -> gtk::ToggleButton {
+        let toggle = Rc::new(self);
+        let button = gtk::ToggleButton::builder()
+            .icon_name(toggle.off_icon)
+            .tooltip_text(&toggle.off_tip)
+            .sensitive(false)
+            .build();
+        let writes_allowed = page.client.writes_allowed();
+        let client = page.client.clone();
+        let path = toggle.path.clone();
+        rt::run(
+            async move { client.call_raw("GET", &path, None).await },
+            glib::clone!(
+                #[weak]
+                button,
+                #[strong]
+                toggle,
+                move |result| match result.map(|json| read(&json)) {
+                    Ok(Ok(on)) => {
+                        button.set_active(on);
+                        toggle.show(&button);
+                        button.set_sensitive(writes_allowed);
+                        if !writes_allowed {
+                            button.set_tooltip_text(Some(&gettext(
+                                "Writes to this account are turned off.",
+                            )));
+                        }
+                    }
+                    Ok(Err(error)) => tracing::warn!("could not read the {}: {error}", toggle.what),
+                    Err(error) => tracing::warn!("could not load the {}: {error}", toggle.what),
+                }
+            ),
+        );
+        let client = page.client.clone();
+        let window = page.window.clone();
+        button.connect_toggled(move |button| {
+            if !button.is_sensitive() {
+                return;
+            }
+            let on = button.is_active();
+            toggle.show(button);
+            button.set_sensitive(false);
+            let client = client.clone();
+            let path = toggle.path.clone();
+            rt::run(
+                async move {
+                    if on {
+                        client.post_empty(&path).await
+                    } else {
+                        client.delete(&path).await
+                    }
+                },
+                glib::clone!(
+                    #[weak]
+                    button,
+                    #[strong]
+                    toggle,
+                    #[strong]
+                    window,
+                    move |result| {
+                        if let Err(error) = result {
+                            if let Some(window) = window.upgrade() {
+                                window.report(
+                                    &format!(
+                                        "could not change the {} at {}",
+                                        toggle.what, toggle.path
+                                    ),
+                                    &error,
+                                );
+                            }
+                            button.set_active(!on);
+                            toggle.show(&button);
+                        }
+                        button.set_sensitive(true);
+                    }
+                ),
+            );
+        });
+        button
+    }
+
+    fn show(&self, button: &gtk::ToggleButton) {
+        let on = button.is_active();
+        button.set_icon_name(if on { self.on_icon } else { self.off_icon });
+        button.set_tooltip_text(Some(if on { &self.on_tip } else { &self.off_tip }));
+    }
 }
 
 pub fn byline(

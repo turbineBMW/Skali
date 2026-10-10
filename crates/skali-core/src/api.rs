@@ -113,6 +113,11 @@ impl Client {
         &self.base_url
     }
 
+    /// The account id: the last segment of the base URL.
+    pub fn account_id(&self) -> i64 {
+        account_id_of(&self.base_url).parse().unwrap_or(0)
+    }
+
     /// A path like `/projects.json` becomes an account URL; a full URL (a
     /// `Link` header's, a recording's `url`) is used as is.
     pub fn url(&self, path_or_url: &str) -> String {
@@ -452,11 +457,15 @@ fn writes_allowed_for(base_url: &str, allowlist: Option<String>) -> bool {
     let Some(allowlist) = allowlist else {
         return true;
     };
-    let account_id = base_url.rsplit('/').next().unwrap_or("");
+    let account_id = account_id_of(base_url);
     allowlist
         .split(',')
         .map(str::trim)
         .any(|id| !id.is_empty() && id == account_id)
+}
+
+fn account_id_of(base_url: &str) -> &str {
+    base_url.rsplit('/').next().unwrap_or("")
 }
 
 /// The `rel="next"` URL of a `Link` header, if there is one.
@@ -573,5 +582,6 @@ mod tests {
             "https://3.basecampapi.com/1000001/projects.json"
         );
         assert_eq!(client.url("https://x/y.json"), "https://x/y.json");
+        assert_eq!(client.account_id(), 1000001);
     }
 }

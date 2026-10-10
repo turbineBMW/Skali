@@ -331,6 +331,37 @@ pub struct Recording {
     pub boosts_count: i64,
 }
 
+/// A boost: a few characters (often one emoji) someone left on a
+/// recording, from `/recordings/<id>/boosts.json`.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Default)]
+pub struct Boost {
+    pub id: i64,
+    #[serde(default, deserialize_with = "null_default")]
+    pub content: String,
+    #[serde(default)]
+    pub created_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub booster: Person,
+}
+
+/// Whether you get notified about a recording
+/// (`/recordings/<id>/subscription.json`).
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Default)]
+pub struct Subscription {
+    #[serde(default)]
+    pub subscribed: bool,
+    #[serde(default)]
+    pub count: i64,
+}
+
+/// Whether a recording is among your bookmarks
+/// (`/recordings/<id>/bookmark.json`).
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Default)]
+pub struct BookmarkState {
+    #[serde(default)]
+    pub bookmarked: bool,
+}
+
 /// The reply to an upload to `/attachments.json`.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Default)]
 pub struct UploadedAttachment {
@@ -1024,4 +1055,23 @@ pub struct SearchType {
     /// Its name, as Basecamp shows it.
     #[serde(default, deserialize_with = "null_default")]
     pub value: String,
+}
+
+#[cfg(test)]
+mod boost_tests {
+    use super::*;
+
+    #[test]
+    fn boosts_and_states_parse() {
+        let json = r#"[{"id": 685277757, "content": "🎉", "created_at": "2026-10-10T14:24:27.656Z",
+            "booster": {"id": 7, "name": "Annie", "title": null}}]"#;
+        let boosts: Vec<Boost> = serde_json::from_str(json).unwrap();
+        assert_eq!(boosts[0].content, "🎉");
+        assert_eq!(boosts[0].booster.id, 7);
+        let sub: Subscription =
+            serde_json::from_str(r#"{"subscribed": true, "count": 1, "subscribers": []}"#).unwrap();
+        assert!(sub.subscribed);
+        let mark: BookmarkState = serde_json::from_str(r#"{"bookmarked": false}"#).unwrap();
+        assert!(!mark.bookmarked);
+    }
 }
