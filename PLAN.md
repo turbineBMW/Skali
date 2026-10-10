@@ -193,7 +193,9 @@ the recording `parent` chain.
 Done:
 - Phase 0, 1: scaffold; Launchpad sign-in with refresh, keyring, accounts.
 - Phase 2: projects, Campfire (scroll-back), message boards, to-dos, card
-  tables, Docs & Files, avatars, inline images, project cache.
+  tables, Docs & Files, Schedule (upcoming by day from
+  `/reports/schedules/upcoming.json`, recurring occurrences, what's due),
+  avatars, inline images, project cache.
 - Phase 3: Hey! (mark read on open, mark all read), Pings, My Assignments,
   desktop notifications. Hey! and My Assignments rows open chats, messages,
   cards, docs, uploads and to-do lists in Campfe (`links::AppLink`), other
@@ -206,7 +208,6 @@ Done:
 - Phase 6: Omarchy theme following, accent, `po/` template, Preferences.
 
 Open, in rough order:
-- Schedule page (the dock shows the tool; nothing opens it).
 - ETags: the `kv` table exists, requests don't send `If-None-Match` yet.
 - Search (`/search.json`, FTS5 over the cache), My Bookmarks, My Notes,
   Timeline.

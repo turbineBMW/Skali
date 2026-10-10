@@ -15,6 +15,12 @@ pub enum AppLink {
     Upload(i64),
     Todo(i64),
     Todolist(i64),
+    /// An event; for a recurring one, maybe one occurrence of it, by its
+    /// date as the link writes it (`20261013`).
+    ScheduleEntry {
+        id: i64,
+        occurrence: Option<u32>,
+    },
 }
 
 impl AppLink {
@@ -34,6 +40,14 @@ impl AppLink {
             ["uploads", upload] => id(upload).map(Self::Upload),
             ["todos", todo] => id(todo).map(Self::Todo),
             ["todolists", list] => id(list).map(Self::Todolist),
+            ["schedule_entries", entry] => id(entry).map(|id| Self::ScheduleEntry {
+                id,
+                occurrence: None,
+            }),
+            ["schedule_entries", entry, "occurrences", date] => {
+                let occurrence = Some(date.parse::<u32>().ok()?);
+                id(entry).map(|id| Self::ScheduleEntry { id, occurrence })
+            }
             _ => None,
         }
     }
@@ -41,7 +55,11 @@ impl AppLink {
     /// The recording the link opens on a page of its own, if it does.
     pub fn recording_id(self) -> Option<i64> {
         match self {
-            Self::Message(id) | Self::Card(id) | Self::Document(id) | Self::Upload(id) => Some(id),
+            Self::Message(id)
+            | Self::Card(id)
+            | Self::Document(id)
+            | Self::Upload(id)
+            | Self::ScheduleEntry { id, .. } => Some(id),
             Self::Chat(_) | Self::Todo(_) | Self::Todolist(_) => None,
         }
     }
@@ -99,6 +117,20 @@ mod tests {
         assert_eq!(parse("uploads/2?x=1"), Some(AppLink::Upload(2)));
         assert_eq!(parse("todos/3"), Some(AppLink::Todo(3)));
         assert_eq!(parse("todolists/4"), Some(AppLink::Todolist(4)));
+        assert_eq!(
+            parse("schedule_entries/5"),
+            Some(AppLink::ScheduleEntry {
+                id: 5,
+                occurrence: None
+            })
+        );
+        assert_eq!(
+            parse("schedule_entries/10392772631/occurrences/20261013"),
+            Some(AppLink::ScheduleEntry {
+                id: 10392772631,
+                occurrence: Some(20261013)
+            })
+        );
         // The sandbox's links are on another Basecamp host.
         assert_eq!(
             AppLink::parse("https://app.basecamp.com/1000002/buckets/2000001/uploads/5"),
@@ -117,6 +149,7 @@ mod tests {
             "http://3.basecamp.com/1/buckets/2/messages/3",
             &format!("{BASE}/card_tables/10252036781"),
             &format!("{BASE}/schedules/1"),
+            &format!("{BASE}/schedule_entries/1/occurrences/next-week"),
             &format!("{BASE}/messages/not-a-number"),
             "",
         ] {

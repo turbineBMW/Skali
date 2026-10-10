@@ -11,7 +11,7 @@ use campfe_core::api::Client;
 use campfe_core::error::{ApiError, Result};
 use campfe_core::links::{self, AppLink};
 use campfe_core::models::{
-    Campfire, Card, DockTool, Document, Message, Project, Todo, Todolist, Upload,
+    Campfire, Card, DockTool, Document, Message, Project, ScheduleEntry, Todo, Todolist, Upload,
 };
 use gtk::glib;
 use std::future::Future;
@@ -99,6 +99,7 @@ impl CampfeWindow {
             "todoset" => pages::todos::set_page(self, client, project, tool),
             "kanban_board" => pages::cards::board_page(self, client, project, tool),
             "vault" => pages::docs::vault_page(self, client, &tool.title, tool.id),
+            "schedule" => pages::schedule::page(self, client, project, tool),
             _ => {
                 self.toast(&crate::i18n::format(
                     &gettext("{tool} isn't supported yet."),
@@ -154,6 +155,12 @@ impl CampfeWindow {
         self.imp()
             .content_nav
             .push(&pages::docs::upload_page(self, client, upload));
+    }
+
+    pub fn open_schedule_entry(&self, client: Client, entry: ScheduleEntry) {
+        self.imp()
+            .content_nav
+            .push(&pages::schedule::entry_page(self, client, entry));
     }
 
     pub fn open_todolist(&self, client: Client, list: Todolist) {
@@ -231,6 +238,19 @@ impl CampfeWindow {
                         .await
                 },
                 Self::open_todolist,
+            ),
+            AppLink::ScheduleEntry { id, occurrence } => self.open_fetched(
+                client,
+                url,
+                focus,
+                async move {
+                    let path = match occurrence {
+                        Some(day) => format!("/schedule_entries/{id}/occurrences/{day}.json"),
+                        None => format!("/schedule_entries/{id}.json"),
+                    };
+                    get.get::<ScheduleEntry>(&path).await
+                },
+                Self::open_schedule_entry,
             ),
             AppLink::Todolist(id) => self.open_fetched(
                 client,

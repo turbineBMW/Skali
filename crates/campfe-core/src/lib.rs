@@ -13,6 +13,7 @@ pub mod links;
 pub mod models;
 pub mod omarchy;
 pub mod richtext;
+pub mod schedule;
 pub mod secrets;
 
 /// What Basecamp sees in the `User-Agent` header, which it requires: the

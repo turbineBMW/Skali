@@ -812,3 +812,177 @@ mod vault_tests {
         assert_eq!(upload(2_300_000).size_label(), "2.3 MB");
     }
 }
+
+/// When a schedule entry starts or ends: a bare date for an all-day entry
+/// (`2026-10-20`), a moment for the rest (`2026-10-13T10:00:00.000-04:00`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum When {
+    Day(chrono::NaiveDate),
+    At(DateTime<Utc>),
+}
+
+impl When {
+    /// The day it falls on in `tz`.
+    pub fn date_in<Tz: chrono::TimeZone>(&self, tz: &Tz) -> chrono::NaiveDate {
+        match self {
+            When::Day(day) => *day,
+            When::At(at) => at.with_timezone(tz).date_naive(),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for When {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let text = String::deserialize(deserializer)?;
+        if let Ok(day) = chrono::NaiveDate::parse_from_str(&text, "%Y-%m-%d") {
+            return Ok(When::Day(day));
+        }
+        DateTime::parse_from_rfc3339(&text)
+            .map(|at| When::At(at.with_timezone(&Utc)))
+            .map_err(serde::de::Error::custom)
+    }
+}
+
+impl Serialize for When {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            When::Day(day) => serializer.serialize_str(&day.format("%Y-%m-%d").to_string()),
+            When::At(at) => serializer.serialize_str(&at.to_rfc3339()),
+        }
+    }
+}
+
+/// A project's schedule (the dock's `schedule` tool).
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Default)]
+pub struct Schedule {
+    #[serde(flatten)]
+    pub recording: Recording,
+    /// Whether to-dos and cards due show on it too.
+    #[serde(default)]
+    pub include_due_assignments: bool,
+}
+
+/// An event on a schedule, or one occurrence of a recurring one. The
+/// upcoming report sends a slimmer one (no description) than the entry's
+/// own endpoint.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Default)]
+pub struct ScheduleEntry {
+    #[serde(flatten)]
+    pub recording: Recording,
+    #[serde(default, deserialize_with = "null_default")]
+    pub summary: String,
+    /// Rich text (HTML).
+    #[serde(default, deserialize_with = "null_default")]
+    pub description: String,
+    #[serde(default)]
+    pub description_attachments: Vec<Attachment>,
+    #[serde(default)]
+    pub all_day: bool,
+    #[serde(default)]
+    pub starts_at: Option<When>,
+    #[serde(default)]
+    pub ends_at: Option<When>,
+    #[serde(default)]
+    pub participants: Vec<Person>,
+    /// A video-call link, say.
+    #[serde(default, deserialize_with = "null_default")]
+    pub join_url: String,
+    /// Set in the upcoming report.
+    #[serde(default)]
+    pub recurring: bool,
+    /// Set on a recurring entry's own record.
+    #[serde(default)]
+    pub recurrence_schedule: Option<Recurrence>,
+}
+
+impl ScheduleEntry {
+    pub fn is_recurring(&self) -> bool {
+        self.recurring || self.recurrence_schedule.is_some()
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Default)]
+pub struct Recurrence {
+    /// `every_day`, `every_weekday`, `every_week`, `every_other_week`,
+    /// `every_month`, `every_day_of_month`, `every_year`, `custom_week`,
+    /// `custom_month`.
+    #[serde(default, deserialize_with = "null_default")]
+    pub frequency: String,
+}
+
+/// A to-do or card due, as the upcoming report lists it.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Default)]
+pub struct DueItem {
+    pub id: i64,
+    /// `todo` or `card`.
+    #[serde(default, deserialize_with = "null_default", rename = "type")]
+    pub kind: String,
+    #[serde(default, deserialize_with = "null_default")]
+    pub content: String,
+    #[serde(default)]
+    pub due_on: Option<chrono::NaiveDate>,
+    #[serde(default)]
+    pub completed: bool,
+    #[serde(default, deserialize_with = "null_default")]
+    pub app_url: String,
+    #[serde(default)]
+    pub bucket: Bucket,
+    #[serde(default)]
+    pub assignees: Vec<Person>,
+}
+
+/// `GET /reports/schedules/upcoming.json`: everything on every schedule
+/// in a window of days, recurring entries expanded into occurrences.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Default)]
+pub struct UpcomingSchedule {
+    #[serde(default)]
+    pub schedule_entries: Vec<ScheduleEntry>,
+    #[serde(default)]
+    pub recurring_schedule_entry_occurrences: Vec<ScheduleEntry>,
+    #[serde(default)]
+    pub assignables: Vec<DueItem>,
+}
+
+#[cfg(test)]
+mod schedule_tests {
+    use super::*;
+
+    #[test]
+    fn entries_start_on_a_day_or_at_a_moment() {
+        let json = r#"{
+          "schedule_entries": [
+            {"id": 1, "summary": "Release day", "all_day": true, "recurring": false,
+             "starts_at": "2026-10-11", "ends_at": "2026-10-11", "parent": {"id": 9, "title": "Calendar"}}
+          ],
+          "recurring_schedule_entry_occurrences": [
+            {"id": 2, "summary": "Weekly sync", "all_day": false, "recurring": true,
+             "starts_at": "2026-10-13T10:00:00.000-04:00", "ends_at": "2026-10-13T10:30:00.000-04:00",
+             "url": "https://3.basecampapi.com/1/buckets/2/schedule_entries/2/occurrences/20261013.json"}
+          ],
+          "assignables": [
+            {"id": 3, "type": "card", "content": "Design", "due_on": "2026-10-20", "completed": false,
+             "bucket": {"id": 2000001, "name": "My Project"}, "assignees": []}
+          ]
+        }"#;
+        let upcoming: UpcomingSchedule = serde_json::from_str(json).unwrap();
+        let day = |s: &str| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap();
+        let release = &upcoming.schedule_entries[0];
+        assert_eq!(release.starts_at, Some(When::Day(day("2026-10-11"))));
+        let sync = &upcoming.recurring_schedule_entry_occurrences[0];
+        assert!(sync.is_recurring());
+        assert_eq!(
+            sync.starts_at,
+            Some(When::At("2026-10-13T14:00:00Z".parse().unwrap()))
+        );
+        // 10:00 in New York is still the 13th; in Tokyo it's the 13th, 23:00.
+        let tokyo = chrono::FixedOffset::east_opt(9 * 3600).unwrap();
+        assert_eq!(sync.starts_at.unwrap().date_in(&tokyo), day("2026-10-13"));
+        let samoa = chrono::FixedOffset::west_opt(11 * 3600).unwrap();
+        assert_eq!(sync.starts_at.unwrap().date_in(&samoa), day("2026-10-13"));
+        assert_eq!(upcoming.assignables[0].due_on, Some(day("2026-10-20")));
+        // Round trip.
+        let again: UpcomingSchedule =
+            serde_json::from_str(&serde_json::to_string(&upcoming).unwrap()).unwrap();
+        assert_eq!(again, upcoming);
+    }
+}

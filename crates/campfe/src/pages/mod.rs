@@ -11,6 +11,7 @@ pub mod messages;
 pub mod pings;
 pub mod project;
 pub mod recording;
+pub mod schedule;
 pub mod todos;
 
 use crate::i18n::gettext;
