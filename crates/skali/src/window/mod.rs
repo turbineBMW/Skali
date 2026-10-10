@@ -813,7 +813,11 @@ impl SkaliWindow {
         store.splice(0, store.n_items(), &objects);
         imp.content_placeholder
             .set_description(Some(&crate::i18n::format(
-                &gettext("{count} projects loaded. Pick one to open it."),
+                &crate::i18n::plural(
+                    "{count} project loaded. Pick it to open it.",
+                    "{count} projects loaded. Pick one to open it.",
+                    count,
+                ),
                 &[("count", &count.to_string())],
             )));
     }

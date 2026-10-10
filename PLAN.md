@@ -216,13 +216,14 @@ Done:
   quiet feed poll gets 304s.
 - Phase 6: Omarchy theme following, accent, `po/` template, Preferences;
   keyboard shortcuts (Ctrl+J jump menu over every sidebar destination,
-  Alt+1-5 for the "me" pages, Ctrl+? lists them all).
+  Alt+1-5 for the "me" pages, Ctrl+? lists them all); README and
+  screenshots (also in the metainfo).
 
 Open, in rough order:
 - Local search (FTS5 over the cache, for offline), My Notes.
 - Writes: to-do notes; dragging cards on the board.
 - PAT paste fallback for sign-in.
-- Screenshots, README, AUR `skali-git` PKGBUILD.
+- AUR `skali-git` PKGBUILD.
 
 ## 7. Development aids
 
