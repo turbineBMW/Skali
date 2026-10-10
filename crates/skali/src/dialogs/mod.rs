@@ -5,3 +5,4 @@ pub mod jump;
 pub mod preferences;
 pub mod shortcuts;
 pub mod todo_editor;
+pub mod token_sign_in;

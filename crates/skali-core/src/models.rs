@@ -273,6 +273,22 @@ mod tests {
         assert_eq!(basecamp.len(), 1);
         assert_eq!(basecamp[0].id, 1000001);
     }
+
+    #[test]
+    fn basecamps_own_authorization_document_parses() {
+        // As https://3.basecampapi.com/authorization.json answers a token:
+        // a null last name, a `resource` per account.
+        let json = r#"{
+            "identity": {"id": 7, "first_name": "Sandbox", "last_name": null, "email_address": "s@example.com"},
+            "accounts": [{"product": "bc3", "id": 1000002, "name": "Sandbox", "href": "https://3.basecampapi.com/1000002",
+              "app_href": "https://app.basecamp.com/1000002", "resource": "https://3.basecampapi.com"}],
+            "expires_at": "2026-10-24T15:20:00.000Z"
+        }"#;
+        let auth: Authorization = serde_json::from_str(json).unwrap();
+        assert_eq!(auth.identity.full_name(), "Sandbox");
+        assert!(auth.accounts[0].is_basecamp());
+        assert!(auth.expires_at.is_some());
+    }
 }
 
 // ---------------------------------------------------------------------------

@@ -30,11 +30,23 @@ template $SkaliWindow: Adw.ApplicationWindow {
             icon-name: "io.github.turbinebmw.Skali-symbolic";
             title: _("Welcome to Skali");
             description: _("Sign in to your Basecamp account to get started.");
-            child: Gtk.Button sign_in_button {
-              label: _("Sign in to Basecamp");
+            child: Gtk.Box {
+              orientation: vertical;
+              spacing: 12;
               halign: center;
 
-              styles ["suggested-action", "pill"]
+              Gtk.Button sign_in_button {
+                label: _("Sign in to Basecamp");
+
+                styles ["suggested-action", "pill"]
+              }
+
+              Gtk.Button {
+                label: _("Use a personal access token");
+                action-name: "win.sign-in-token";
+
+                styles ["flat"]
+              }
             };
           };
         };
@@ -142,6 +154,11 @@ menu primary_menu {
     item {
       label: _("_Sign in to Basecamp");
       action: "win.sign-in";
+    }
+
+    item {
+      label: _("Sign in with a _Token…");
+      action: "win.sign-in-token";
     }
   }
 
