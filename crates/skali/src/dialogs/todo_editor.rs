@@ -1,5 +1,7 @@
-//! Adding a to-do, or changing one: what it is, who it's assigned to, when
-//! it's due. A to-do's notes are rich text and are kept as they are.
+//! Adding a to-do, or changing one: what it is, its notes, who it's
+//! assigned to, when it's due. Notes are edited as plain text and sent only
+//! when changed, so opening a to-do with formatted notes to reassign it
+//! leaves the formatting alone.
 
 use crate::i18n::gettext;
 use crate::pages::avatar;
@@ -10,6 +12,7 @@ use chrono::{Datelike, NaiveDate};
 use gtk::glib;
 use skali_core::api::Client;
 use skali_core::models::{Person, Todo};
+use skali_core::richtext;
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeSet;
 use std::rc::Rc;
@@ -45,6 +48,37 @@ pub fn present(
         .build();
     let what = adw::PreferencesGroup::new();
     what.add(&content);
+
+    let old_notes = todo.map(|t| t.description.clone()).unwrap_or_default();
+    let notes_text = gtk::TextView::builder()
+        .wrap_mode(gtk::WrapMode::WordChar)
+        .accepts_tab(false)
+        .top_margin(8)
+        .bottom_margin(8)
+        .left_margin(10)
+        .right_margin(10)
+        .build();
+    notes_text
+        .buffer()
+        .set_text(richtext::plain_text(&old_notes).trim());
+    let notes_edited = Rc::new(Cell::new(false));
+    notes_text.buffer().connect_changed(glib::clone!(
+        #[strong]
+        notes_edited,
+        move |_| notes_edited.set(true)
+    ));
+    let notes = adw::PreferencesGroup::builder()
+        .title(gettext("Notes"))
+        .build();
+    notes.add(
+        &gtk::ScrolledWindow::builder()
+            .child(&notes_text)
+            .min_content_height(80)
+            .max_content_height(200)
+            .propagate_natural_height(true)
+            .css_classes(["card"])
+            .build(),
+    );
 
     let people = adw::PreferencesGroup::builder()
         .title(gettext("Assigned to"))
@@ -133,6 +167,7 @@ pub fn present(
 
     let page = adw::PreferencesPage::new();
     page.add(&what);
+    page.add(&notes);
     page.add(&people);
     page.add(&when);
 
@@ -154,7 +189,7 @@ pub fn present(
     let dialog = adw::Dialog::builder()
         .title(&title)
         .content_width(480)
-        .content_height(560)
+        .content_height(640)
         .child(&toolbar)
         .build();
 
@@ -233,17 +268,30 @@ pub fn present(
         on_saved,
         #[strong]
         target,
+        #[weak]
+        notes_text,
+        #[strong]
+        notes_edited,
         move |save| {
             let text = content.text().trim().to_string();
             if text.is_empty() {
                 return;
             }
+            let notes_html = notes_edited.get().then(|| {
+                let buffer = notes_text.buffer();
+                richtext::text_to_html(&buffer.text(
+                    &buffer.start_iter(),
+                    &buffer.end_iter(),
+                    false,
+                ))
+            });
             let assignee_ids: Vec<i64> = assigned.borrow().iter().copied().collect();
             let (path, body, creating) = match target.as_ref() {
                 Target::New { list_id } => (
                     format!("/todolists/{list_id}/todos.json"),
                     serde_json::json!({
                         "content": text,
+                        "description": notes_html.clone().unwrap_or_default(),
                         "assignee_ids": assignee_ids,
                         "due_on": due.get(),
                         "notify": !assignee_ids.is_empty(),
@@ -252,7 +300,7 @@ pub fn present(
                 ),
                 Target::Edit(todo) => (
                     format!("/todos/{}.json", todo.recording.id),
-                    todo.update_body(&text, &assignee_ids, due.get()),
+                    todo.update_body(&text, notes_html.as_deref(), &assignee_ids, due.get()),
                     false,
                 ),
             };
