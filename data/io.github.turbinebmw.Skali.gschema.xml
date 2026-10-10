@@ -11,6 +11,11 @@
 			<summary>Follow the Omarchy theme</summary>
 			<description>On Omarchy, take the current theme's colours and dark or light style. Elsewhere this does nothing.</description>
 		</key>
+		<key name="klipy-api-key" type="s">
+			<default>''</default>
+			<summary>KLIPY API key</summary>
+			<description>The key GIF search uses, free from partner.klipy.com. Empty turns GIF search off.</description>
+		</key>
 		<key name="window-width" type="i">
 			<range min="360" max="10000"/>
 			<default>1400</default>

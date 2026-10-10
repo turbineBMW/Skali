@@ -394,6 +394,14 @@ macro_rules! searchable {
 
 searchable!(ChatLine, |line| if line.is_rich_text() {
     crate::richtext::plain_text(&line.content)
+} else if line.content.is_empty() {
+    joined(
+        &line
+            .attachments
+            .iter()
+            .map(|a| a.filename.as_str())
+            .collect::<Vec<_>>(),
+    )
 } else {
     line.content.clone()
 });
@@ -573,14 +581,38 @@ impl Campfire {
 pub struct ChatLine {
     #[serde(flatten)]
     pub recording: Recording,
-    /// Plain text, or HTML for `Chat::Lines::RichText`.
+    /// Plain text, or HTML for `Chat::Lines::RichText`. Empty for an
+    /// upload.
     #[serde(default, deserialize_with = "null_default")]
     pub content: String,
+    /// The files of a `Chat::Lines::Upload`.
+    #[serde(default, deserialize_with = "null_default")]
+    pub attachments: Vec<ChatAttachment>,
 }
 
 impl ChatLine {
     pub fn is_rich_text(&self) -> bool {
         self.recording.kind.ends_with("RichText")
+    }
+}
+
+/// A file uploaded to a Campfire. Leaner than an `Attachment`: no id, no
+/// size in pixels, no preview.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Default)]
+pub struct ChatAttachment {
+    #[serde(default, deserialize_with = "null_default")]
+    pub filename: String,
+    #[serde(default, deserialize_with = "null_default")]
+    pub content_type: String,
+    #[serde(default)]
+    pub byte_size: i64,
+    #[serde(default, deserialize_with = "null_default")]
+    pub download_url: String,
+}
+
+impl ChatAttachment {
+    pub fn is_image(&self) -> bool {
+        self.content_type.starts_with("image/")
     }
 }
 
@@ -827,6 +859,21 @@ mod recording_tests {
         assert_eq!(line.recording.bucket.kind, "Project");
         assert!(line.is_rich_text());
         assert_eq!(line.recording.parent.unwrap().kind, "Chat::Transcript");
+    }
+
+    #[test]
+    fn an_upload_line_has_no_content_but_its_files() {
+        let json = r#"{"id": 7, "type": "Chat::Lines::Upload", "title": "party.gif",
+            "creator": {"id": 3, "name": "Victor Cooper"},
+            "attachments": [{"title": "party.gif", "url": "https://3.basecampapi.com/1/blobs/x",
+                "filename": "party.gif", "content_type": "image/gif", "byte_size": 1234,
+                "download_url": "https://3.basecampapi.com/1/blobs/x/download/party.gif"}]}"#;
+        let line: ChatLine = serde_json::from_str(json).unwrap();
+        assert!(line.content.is_empty());
+        assert!(!line.is_rich_text());
+        assert_eq!(line.attachments.len(), 1);
+        assert!(line.attachments[0].is_image());
+        assert_eq!(line.search_text(), "party.gif");
     }
 
     #[test]

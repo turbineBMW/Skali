@@ -4,6 +4,7 @@ use crate::config::GETTEXT_DOMAIN;
 pub use gettextrs::gettext;
 use gettextrs::{LocaleCategory, bindtextdomain, setlocale, textdomain};
 use skali_core::error::ApiError;
+use skali_core::gif::GifError;
 
 pub fn init() {
     // SAFETY: called once at startup, before any other thread exists.
@@ -72,5 +73,22 @@ pub fn failure_message(error: &ApiError) -> String {
             &[("error", &error.to_string())],
         ),
         ApiError::Io(error) => error.to_string(),
+    }
+}
+
+/// What to tell the user when GIF search or a GIF's download fails.
+pub fn gif_failure_message(error: &GifError) -> String {
+    match error {
+        GifError::NoKey => gettext("Add a free KLIPY API key in Preferences to search GIFs."),
+        GifError::RateLimited => {
+            gettext("KLIPY's hourly search limit was reached. Try again later.")
+        }
+        GifError::Klipy(message) => format(
+            &gettext("KLIPY answered: {message}"),
+            &[("message", message)],
+        ),
+        GifError::TooLarge => gettext("The GIF is too large to send."),
+        GifError::NotAGif => gettext("That file is not a GIF."),
+        GifError::Network(_) => gettext("Could not reach KLIPY. Check your connection."),
     }
 }

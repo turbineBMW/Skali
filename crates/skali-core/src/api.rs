@@ -8,6 +8,7 @@
 
 use crate::USER_AGENT;
 use crate::error::{ApiError, Result};
+use crate::models::ChatLine;
 use reqwest::header::{ETAG, HeaderMap, HeaderValue, IF_NONE_MATCH, LINK, RETRY_AFTER};
 use reqwest::{Response, StatusCode};
 use serde::Serialize;
@@ -265,9 +266,34 @@ impl Client {
         content_type: &str,
         bytes: Vec<u8>,
     ) -> Result<serde_json::Value> {
+        self.post_file("/attachments.json", name, content_type, bytes)
+            .await
+    }
+
+    /// Post a file to a Campfire; it arrives as a `Chat::Lines::Upload`.
+    pub async fn upload_to_chat(
+        &self,
+        chat_id: i64,
+        name: &str,
+        content_type: &str,
+        bytes: Vec<u8>,
+    ) -> Result<ChatLine> {
+        let path = format!("/chats/{chat_id}/uploads.json");
+        let reply = self.post_file(&path, name, content_type, bytes).await?;
+        Ok(serde_json::from_value(reply)?)
+    }
+
+    /// A file's bytes as the body, its name in the query.
+    async fn post_file(
+        &self,
+        path: &str,
+        name: &str,
+        content_type: &str,
+        bytes: Vec<u8>,
+    ) -> Result<serde_json::Value> {
         self.check_write()?;
         let path = format!(
-            "/attachments.json?name={}",
+            "{path}?name={}",
             percent_encoding::utf8_percent_encode(name, percent_encoding::NON_ALPHANUMERIC)
         );
         let content_type = content_type.to_string();

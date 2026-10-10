@@ -1,6 +1,7 @@
 //! Preferences: the accounts, with a way out of each, and the few
-//! settings there are. The switches are bound to GSettings; the theme
-//! and notification code watch those keys.
+//! settings there are. The switches and the KLIPY key are bound to
+//! GSettings; the theme and notification code watch those keys, and the
+//! GIF picker reads the key at each search.
 
 use crate::i18n::gettext;
 use crate::settings as keys;
@@ -25,6 +26,8 @@ mod imp {
         pub follow_omarchy_row: TemplateChild<adw::SwitchRow>,
         #[template_child]
         pub notifications_row: TemplateChild<adw::SwitchRow>,
+        #[template_child]
+        pub klipy_key_row: TemplateChild<adw::PasswordEntryRow>,
     }
 
     #[glib::object_subclass]
@@ -67,6 +70,9 @@ impl PreferencesDialog {
             .build();
         settings
             .bind(keys::NOTIFICATIONS, &*imp.notifications_row, "active")
+            .build();
+        settings
+            .bind(keys::KLIPY_API_KEY, &*imp.klipy_key_row, "text")
             .build();
         imp.add_account_button.connect_clicked(glib::clone!(
             #[weak]

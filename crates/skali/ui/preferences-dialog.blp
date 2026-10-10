@@ -41,5 +41,14 @@ template $SkaliPreferencesDialog: Adw.PreferencesDialog {
         subtitle: _("A desktop notification when Hey! has something new and the window isn't in front.");
       }
     }
+
+    Adw.PreferencesGroup {
+      title: _("GIFs");
+      description: _("GIF search in chats uses KLIPY. Get a free API key at partner.klipy.com and paste it here.");
+
+      Adw.PasswordEntryRow klipy_key_row {
+        title: _("KLIPY API key");
+      }
+    }
   }
 }
