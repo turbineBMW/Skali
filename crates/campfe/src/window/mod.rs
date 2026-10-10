@@ -276,12 +276,23 @@ impl CampfeWindow {
             ids
         };
         {
+            let db = self.db();
+            let db = db.borrow();
             let mut state = self.state_mut();
             for account in accounts {
+                // What was listed last time, until the network answers.
+                match db.cached_projects(account.id) {
+                    Ok(projects) if !projects.is_empty() => {
+                        state.projects.insert(account.id, projects);
+                    }
+                    Ok(_) => {}
+                    Err(error) => tracing::warn!("could not read cached projects: {error}"),
+                }
                 state.accounts.insert(account.id, account);
             }
         }
         self.imp().main_stack.set_visible_child_name(PAGE_MAIN);
+        self.rebuild_sidebar();
         for identity_id in identity_ids {
             rt::run(
                 async move { campfe_core::secrets::load_tokens(identity_id).await },
@@ -395,6 +406,9 @@ impl CampfeWindow {
 
     fn projects_loaded(&self, account_id: i64, projects: Vec<Project>) {
         tracing::info!("account {account_id}: {} projects", projects.len());
+        if let Err(error) = self.db().borrow_mut().store_projects(account_id, &projects) {
+            tracing::warn!("could not cache the projects of {account_id}: {error}");
+        }
         self.state_mut().projects.insert(account_id, projects);
         self.rebuild_sidebar();
         self.debug_open(account_id);

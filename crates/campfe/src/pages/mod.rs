@@ -68,13 +68,15 @@ pub fn empty(title: &str, icon: &str) -> gtk::Widget {
         .upcast()
 }
 
-/// A person's avatar: their picture once we load them, their initials now.
+/// A person's avatar: their initials at once, their picture when loaded.
 pub fn avatar(person: &Person, size: i32) -> adw::Avatar {
-    adw::Avatar::builder()
+    let avatar = adw::Avatar::builder()
         .size(size)
         .text(&person.name)
         .show_initials(true)
-        .build()
+        .build();
+    crate::avatars::load_into(&avatar, &person.avatar_url);
+    avatar
 }
 
 /// A time as a list shows it: the clock for today, the date otherwise.

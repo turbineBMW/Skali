@@ -3,7 +3,7 @@
 //! Migrations are append-only, tracked by `PRAGMA user_version`.
 
 use crate::error::Result;
-use crate::models::Account;
+use crate::models::{Account, Project};
 use rusqlite::{Connection, params};
 use std::path::Path;
 
@@ -20,6 +20,15 @@ const MIGRATIONS: &[&str] = &[
         position INTEGER NOT NULL DEFAULT 0
     );
     CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);",
+    // 2: projects as last listed, whole, so the sidebar fills before the
+    // network answers.
+    "CREATE TABLE projects (
+        id INTEGER PRIMARY KEY,
+        account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        position INTEGER NOT NULL DEFAULT 0,
+        json TEXT NOT NULL
+    );
+    CREATE INDEX projects_account ON projects(account_id, position);",
 ];
 
 pub struct Database {
@@ -101,6 +110,45 @@ impl Database {
         Ok(())
     }
 
+    /// The projects of an account as last stored, in order.
+    pub fn cached_projects(&self, account_id: i64) -> Result<Vec<Project>> {
+        let mut statement = self
+            .conn
+            .prepare("SELECT json FROM projects WHERE account_id = ?1 ORDER BY position")?;
+        let rows = statement.query_map(params![account_id], |row| row.get::<_, String>(0))?;
+        let mut projects = Vec::new();
+        for json in rows {
+            match serde_json::from_str::<Project>(&json?) {
+                Ok(project) => projects.push(project),
+                // A row from an older model: skipped, overwritten on the next store.
+                Err(error) => tracing::warn!("a cached project did not parse: {error}"),
+            }
+        }
+        Ok(projects)
+    }
+
+    /// Replace an account's projects with this listing.
+    pub fn store_projects(&mut self, account_id: i64, projects: &[Project]) -> Result<()> {
+        let tx = self.conn.transaction()?;
+        tx.execute(
+            "DELETE FROM projects WHERE account_id = ?1",
+            params![account_id],
+        )?;
+        for (position, project) in projects.iter().enumerate() {
+            tx.execute(
+                "INSERT INTO projects (id, account_id, position, json) VALUES (?1, ?2, ?3, ?4)",
+                params![
+                    project.id,
+                    account_id,
+                    position as i64,
+                    serde_json::to_string(project)?
+                ],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     pub fn meta(&self, key: &str) -> Result<Option<String>> {
         let value = self
             .conn
@@ -150,6 +198,31 @@ mod tests {
         assert_eq!(db.accounts().unwrap(), vec![renamed]);
         db.remove_account(1000001).unwrap();
         assert!(db.accounts().unwrap().is_empty());
+    }
+
+    #[test]
+    fn projects_are_cached_per_account_in_order() {
+        let mut db = Database::open_in_memory().unwrap();
+        db.upsert_account(&account()).unwrap();
+        let project = |id: i64, name: &str| Project {
+            id,
+            name: name.into(),
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            ..Default::default()
+        };
+        db.store_projects(1000001, &[project(2, "B"), project(1, "A")])
+            .unwrap();
+        let names: Vec<String> = db
+            .cached_projects(1000001)
+            .unwrap()
+            .into_iter()
+            .map(|p| p.name)
+            .collect();
+        assert_eq!(names, ["B", "A"]);
+        db.store_projects(1000001, &[project(1, "A")]).unwrap();
+        assert_eq!(db.cached_projects(1000001).unwrap().len(), 1);
+        assert!(db.cached_projects(1).unwrap().is_empty());
     }
 
     #[test]

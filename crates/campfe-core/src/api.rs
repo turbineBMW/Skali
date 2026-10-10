@@ -265,6 +265,14 @@ async fn classify(response: Response) -> Result<Response> {
     })
 }
 
+/// Bytes from a URL that needs no sign-in (avatars on Basecamp's CDN).
+/// No bearer token: the host isn't the API's.
+pub async fn fetch_public_bytes(url: &str) -> Result<Vec<u8>> {
+    let response = http_client()?.get(url).send().await?;
+    let response = classify(response).await?;
+    Ok(response.bytes().await?.to_vec())
+}
+
 /// The development guard: with an allowlist set, only its account ids may
 /// be written to. The account id is the last path segment of the base URL.
 fn writes_allowed_for(base_url: &str, allowlist: Option<String>) -> bool {

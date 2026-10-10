@@ -158,12 +158,33 @@ pub struct Project {
     pub updated_at: DateTime<Utc>,
     #[serde(default, deserialize_with = "null_default")]
     pub bookmarked: bool,
+    #[serde(default)]
+    pub starred: bool,
     #[serde(default, deserialize_with = "null_default")]
     pub url: String,
     #[serde(default, deserialize_with = "null_default")]
     pub app_url: String,
     #[serde(default)]
     pub dock: Vec<DockTool>,
+}
+
+impl Default for Project {
+    fn default() -> Self {
+        Self {
+            id: 0,
+            name: String::new(),
+            description: None,
+            purpose: String::new(),
+            status: String::new(),
+            created_at: DateTime::UNIX_EPOCH,
+            updated_at: DateTime::UNIX_EPOCH,
+            bookmarked: false,
+            starred: false,
+            url: String::new(),
+            app_url: String::new(),
+            dock: Vec::new(),
+        }
+    }
 }
 
 impl Project {

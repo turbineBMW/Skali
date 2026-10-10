@@ -2,6 +2,7 @@
 
 mod accent;
 mod application;
+mod avatars;
 mod config;
 mod i18n;
 mod omarchy;
