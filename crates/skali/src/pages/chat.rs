@@ -1,8 +1,9 @@
 //! A Campfire: its lines, oldest at the top, newest at the bottom where
 //! the eye lands. The API pages newest-first; each page is reversed for
 //! display, and scrolling to the top fetches the next (older) page and
-//! prepends it, keeping what was on screen where it was. Boosts sit under
-//! their line; hovering a line shows the button that adds one.
+//! prepends it, keeping what was on screen where it was. Each line is a
+//! bubble, yours on the right; boosts sit inside it, and hovering a line
+//! shows the button that adds one.
 
 use super::{avatar, shell, time_label};
 use crate::i18n::gettext;
@@ -11,7 +12,7 @@ use crate::window::SkaliWindow;
 use adw::prelude::*;
 use gtk::glib;
 use skali_core::api::Client;
-use skali_core::models::{Boost, ChatLine};
+use skali_core::models::{Boost, ChatLine, Person};
 use skali_core::richtext;
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
@@ -19,6 +20,12 @@ use std::rc::Rc;
 
 /// How close to the top (in pixels) asks for the older page.
 const SCROLLBACK_THRESHOLD: f64 = 120.0;
+/// A line's avatar, and the gap left for one in a run.
+const AVATAR_SIZE: i32 = 40;
+/// The widest a bubble gets.
+const BUBBLE_WIDTH: i32 = 680;
+/// The room a bubble leaves on the side it isn't on.
+const LANE_INDENT: i32 = 64;
 
 /// What the page remembers between fetches, shared by the scroll handler,
 /// the fetch callbacks and the live feed.
@@ -43,6 +50,11 @@ pub struct ChatView {
     line_ids: RefCell<HashSet<i64>>,
     /// Each line's row of boost chips and the boosts in it, by line id.
     boosts: RefCell<HashMap<i64, (gtk::Box, Vec<Boost>)>>,
+    /// You in this account: from the window, or fetched by the page.
+    me: RefCell<Option<Person>>,
+    /// Whether the newest line is in view, so the page follows it when
+    /// the lines grow: a live line, boosts or an image that load late.
+    pinned: Cell<bool>,
 }
 
 impl ChatView {
@@ -100,14 +112,8 @@ impl ChatView {
         if self.line_ids.borrow().contains(&line.recording.id) {
             return;
         }
-        let adjustment = self.scroller.vadjustment();
-        let at_bottom = adjustment.value() + adjustment.page_size() >= adjustment.upper() - 40.0;
+        // At the bottom, the page follows it down (see `pinned`).
         self.append_line(line);
-        if at_bottom {
-            glib::idle_add_local_once(move || {
-                adjustment.set_value(adjustment.upper() - adjustment.page_size());
-            });
-        }
     }
 
     /// A new line at the bottom: ours just posted, or one arriving live.
@@ -226,11 +232,42 @@ impl ChatView {
         }
     }
 
-    /// Your person id in this account, once the window knows it.
+    /// Your person id in this account, once known.
     fn me(&self) -> Option<i64> {
-        self.window
-            .upgrade()?
-            .my_person_id(self.client.account_id())
+        self.me.borrow().as_ref().map(|person| person.id)
+    }
+
+    /// The first page, once it's known who you are: your lines sit on the
+    /// other side, and lines mentioning you stand out. A chat opened at
+    /// launch can beat the window's own profile fetch; then the page asks.
+    fn load_first(self: &Rc<Self>) {
+        let known = self
+            .window
+            .upgrade()
+            .and_then(|window| window.my_person(self.client.account_id()));
+        if known.is_some() {
+            *self.me.borrow_mut() = known;
+            self.load_older();
+            return;
+        }
+        let client = self.client.clone();
+        rt::run(
+            async move { client.get::<Person>("/my/profile.json").await },
+            glib::clone!(
+                #[strong(rename_to = view)]
+                self,
+                move |result| {
+                    match result {
+                        Ok(person) => *view.me.borrow_mut() = Some(person),
+                        Err(error) => tracing::warn!(
+                            "could not load your profile for the chat {}: {error}",
+                            view.title
+                        ),
+                    }
+                    view.load_older();
+                }
+            ),
+        );
     }
 
     fn fetch_boosts(self: &Rc<Self>, line_id: i64) {
@@ -334,40 +371,90 @@ impl ChatView {
         );
     }
 
-    /// One line. In a run of lines by the same person within minutes, only the
-    /// first carries the avatar and name.
+    /// One line, as a bubble: yours on the right, everyone else's on the
+    /// left. In a run of lines by the same person within minutes, only the
+    /// first carries the avatar, name and time.
     fn line_row(self: &Rc<Self>, line: &ChatLine, same_run: bool) -> gtk::Widget {
+        let me = self.me.borrow();
+        let mine = me
+            .as_ref()
+            .is_some_and(|me| me.id == line.recording.creator.id);
+        // Basecamp's highlight for a line that mentions you.
+        let mentioned = !mine
+            && line.is_rich_text()
+            && me
+                .as_ref()
+                .is_some_and(|me| richtext::mentions(&line.content, &me.attachable_sgid));
+        drop(me);
+        let side = if mine {
+            gtk::Align::End
+        } else {
+            gtk::Align::Start
+        };
         let row = gtk::Box::builder()
             .orientation(gtk::Orientation::Horizontal)
-            .spacing(12)
-            .margin_top(if same_run { 0 } else { 10 })
+            .spacing(10)
+            .margin_top(if same_run { 2 } else { 12 })
             .css_classes(["chat-line"])
             .build();
-        if same_run {
-            let spacer = gtk::Box::builder().width_request(36).build();
-            row.append(&spacer);
+        let face: gtk::Widget = if same_run {
+            gtk::Box::builder()
+                .width_request(AVATAR_SIZE)
+                .build()
+                .upcast()
         } else {
-            let avatar = avatar(&line.recording.creator, 36);
+            let avatar = avatar(&line.recording.creator, AVATAR_SIZE);
             avatar.set_valign(gtk::Align::Start);
-            row.append(&avatar);
+            avatar.upcast()
+        };
+        // The bubble and its boost button, pushed to the line's side; the
+        // other side keeps a margin so the two read as a conversation.
+        let lane = gtk::Box::builder()
+            .orientation(gtk::Orientation::Horizontal)
+            .spacing(6)
+            .hexpand(true)
+            .halign(side)
+            .build();
+        if mine {
+            lane.set_margin_start(LANE_INDENT);
+        } else {
+            lane.set_margin_end(LANE_INDENT);
         }
-        let column = gtk::Box::new(gtk::Orientation::Vertical, 2);
-        column.set_hexpand(true);
+        let bubble = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .spacing(2)
+            .css_classes(["chat-bubble", if mine { "mine" } else { "theirs" }])
+            .build();
+        if mentioned {
+            bubble.add_css_class("mentioned");
+        }
         if !same_run {
-            let header = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+            let header = gtk::Box::builder()
+                .orientation(gtk::Orientation::Horizontal)
+                .spacing(6)
+                .halign(side)
+                .build();
             let name = gtk::Label::builder()
-                .label(&line.recording.creator.name)
-                .xalign(0.0)
-                .css_classes(["heading"])
+                .label(if mine {
+                    gettext("Me")
+                } else {
+                    line.recording.creator.name.clone()
+                })
+                .css_classes(["chat-name"])
                 .build();
             let time = gtk::Label::builder()
                 .label(time_label(line.recording.created_at))
                 .css_classes(["dim-label", "caption"])
                 .valign(gtk::Align::Baseline)
                 .build();
-            header.append(&name);
-            header.append(&time);
-            column.append(&header);
+            if mine {
+                header.append(&time);
+                header.append(&name);
+            } else {
+                header.append(&name);
+                header.append(&time);
+            }
+            bubble.append(&header);
         }
         let body = gtk::Label::builder()
             .use_markup(true)
@@ -390,26 +477,25 @@ impl ChatView {
                 _ => glib::Propagation::Proceed,
             },
         );
-        column.append(&body);
+        bubble.append(&body);
         let line_id = line.recording.id;
         let chips = gtk::Box::builder()
             .spacing(6)
-            .margin_top(4)
+            .margin_top(6)
             .visible(false)
             .build();
-        column.append(&chips);
+        bubble.append(&chips);
         self.boosts
             .borrow_mut()
             .insert(line_id, (chips, Vec::new()));
         if line.recording.boosts_count > 0 {
             self.fetch_boosts(line_id);
         }
-        row.append(&column);
-        if self.client.writes_allowed() {
+        let add = self.client.writes_allowed().then(|| {
             let add = gtk::Button::builder()
                 .icon_name("face-smile-big-symbolic")
                 .tooltip_text(gettext("Boost"))
-                .valign(gtk::Align::Start)
+                .valign(gtk::Align::Center)
                 .css_classes(["flat", "circular", "boost-add"])
                 .build();
             add.connect_clicked(glib::clone!(
@@ -424,7 +510,30 @@ impl ChatView {
                     });
                 }
             ));
-            row.append(&add);
+            add
+        });
+        // The width cap is a clamp, not the label's max-width-chars: a
+        // wrapping label is measured at the width it's offered, so it must
+        // be offered the width it's drawn at, or long lines overflow.
+        let bubble = adw::Clamp::builder()
+            .maximum_size(BUBBLE_WIDTH)
+            .tightening_threshold(BUBBLE_WIDTH)
+            .child(&bubble)
+            .build();
+        if mine {
+            if let Some(add) = &add {
+                lane.append(add);
+            }
+            lane.append(&bubble);
+            row.append(&lane);
+            row.append(&face);
+        } else {
+            lane.append(&bubble);
+            if let Some(add) = &add {
+                lane.append(add);
+            }
+            row.append(&face);
+            row.append(&lane);
         }
         row.upcast()
     }
@@ -473,9 +582,11 @@ pub fn page(
         newest: RefCell::new(None),
         line_ids: RefCell::new(HashSet::new()),
         boosts: RefCell::new(HashMap::new()),
+        me: RefCell::new(None),
+        pinned: Cell::new(true),
     });
     window.watch_chat(&view);
-    view.load_older();
+    view.load_first();
 
     // The composer, along the bottom.
     let entry = gtk::Entry::builder()
@@ -536,8 +647,25 @@ pub fn page(
         #[strong]
         view,
         move |adjustment| {
+            view.pinned
+                .set(adjustment.value() + adjustment.page_size() >= adjustment.upper() - 40.0);
             if adjustment.value() <= SCROLLBACK_THRESHOLD {
                 view.load_older();
+            }
+        }
+    ));
+    // Grown (or the window resized) while at the bottom: stay there.
+    scroller.vadjustment().connect_changed(glib::clone!(
+        #[strong]
+        view,
+        move |adjustment| {
+            // Not from inside the signal: it comes mid-allocation, and the
+            // viewport puts its own value back.
+            if view.pinned.get() {
+                let adjustment = adjustment.clone();
+                glib::idle_add_local_once(move || {
+                    adjustment.set_value(adjustment.upper() - adjustment.page_size());
+                });
             }
         }
     ));

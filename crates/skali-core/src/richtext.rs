@@ -340,6 +340,25 @@ pub fn text_to_html(text: &str) -> String {
     paragraphs.join("")
 }
 
+/// Whether `html` mentions the person whose `attachable_sgid` is `sgid`.
+pub fn mentions(html: &str, sgid: &str) -> bool {
+    !sgid.is_empty()
+        && ATTACHMENT.captures_iter(html).any(|attachment| {
+            let mut is_mention = false;
+            let mut is_them = false;
+            for capture in ATTRIBUTE.captures_iter(&attachment[1]) {
+                match &capture[1] {
+                    "content-type" => {
+                        is_mention = &capture[2] == "application/vnd.basecamp.mention"
+                    }
+                    "sgid" => is_them = &capture[2] == sgid,
+                    _ => {}
+                }
+            }
+            is_mention && is_them
+        })
+}
+
 /// A file uploaded to `/attachments.json`, placed in rich text by its
 /// `attachable_sgid`; Basecamp renders it on the way back.
 pub fn attachment_tag(sgid: &str) -> String {
@@ -370,6 +389,16 @@ mod tests {
     fn plain_text_strips_and_breaks() {
         let html = "<div>Hello <strong>there</strong><br>second</div><div>&amp; third &#8217;s</div><div></div>";
         assert_eq!(plain_text(html), "Hello there\nsecond\n& third ’s");
+    }
+
+    #[test]
+    fn mentions_of_one_person_are_found() {
+        let html = r#"<div><bc-attachment sgid="ann" content-type="application/vnd.basecamp.mention"><figure><figcaption>Ann</figcaption></figure></bc-attachment> and <bc-attachment sgid="bob" content-type="image/png"></bc-attachment></div>"#;
+        assert!(mentions(html, "ann"));
+        // Bob is in an attachment, not a mention.
+        assert!(!mentions(html, "bob"));
+        assert!(!mentions(html, "cy"));
+        assert!(!mentions(html, ""));
     }
 
     #[test]

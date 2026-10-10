@@ -120,6 +120,9 @@ pub struct Person {
     /// An open set: User, Agent, Integration, Outsider, Client, Tombstone...
     #[serde(default, deserialize_with = "null_default")]
     pub personable_type: String,
+    /// What a mention of this person carries as its `sgid`.
+    #[serde(default, deserialize_with = "null_default")]
+    pub attachable_sgid: String,
 }
 
 /// A tool on a project's dock: a message board, a chat, a to-do set...
