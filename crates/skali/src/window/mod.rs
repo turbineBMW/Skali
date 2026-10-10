@@ -76,9 +76,9 @@ pub struct State {
     pub projects: HashMap<i64, Vec<Project>>,
     /// Hey!'s unread count per account, for the sidebar badge.
     pub unread_counts: HashMap<i64, usize>,
-    /// Your person id in each account (not the Launchpad identity's), to
-    /// tell your boosts from others'.
-    pub me: HashMap<i64, i64>,
+    /// You in each account (not the Launchpad identity), to tell your
+    /// boosts and lines from others' and spot mentions of you.
+    pub me: HashMap<i64, skali_core::models::Person>,
     /// The chat pages open now, by chat id, for lines arriving live.
     pub live_chats: HashMap<i64, std::rc::Weak<crate::pages::chat::ChatView>>,
     /// The message pages open now, by message id, for comments arriving live.
@@ -591,7 +591,7 @@ impl SkaliWindow {
                 self,
                 move |result| match result {
                     Ok(person) => {
-                        window.state_mut().me.insert(account_id, person.id);
+                        window.state_mut().me.insert(account_id, person);
                     }
                     Err(error) => {
                         tracing::warn!("could not load your profile in {account_id}: {error}")
@@ -603,7 +603,12 @@ impl SkaliWindow {
 
     /// Your person id in this account, once known.
     pub fn my_person_id(&self, account_id: i64) -> Option<i64> {
-        self.state().me.get(&account_id).copied()
+        self.state().me.get(&account_id).map(|person| person.id)
+    }
+
+    /// You in this account, once known.
+    pub fn my_person(&self, account_id: i64) -> Option<skali_core::models::Person> {
+        self.state().me.get(&account_id).cloned()
     }
 
     /// Hey!'s unread count, for the sidebar badge.

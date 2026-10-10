@@ -52,3 +52,17 @@ button.boost-chip:hover { background-color: alpha(currentColor, 0.07); }
 /* A chat line's boost button shows while the line is hovered. */
 .chat-line .boost-add { opacity: 0; }
 .chat-line:hover .boost-add, .chat-line .boost-add:focus-visible { opacity: 1; }
+
+/* Chat lines as bubbles: yours tinted with the accent, on the right. */
+.chat-bubble {
+  padding: 8px 14px;
+  border-radius: 14px;
+  background-color: alpha(currentColor, 0.06);
+}
+.chat-bubble.mine { background-color: alpha(var(--accent-bg-color), 0.25); }
+/* A line that mentions you, in the theme's warm colour (an Omarchy theme
+   sets it from its yellow). */
+.chat-bubble.mentioned { background-color: alpha(var(--warning-bg-color), 0.25); }
+.chat-name { font-weight: bold; }
+/* Boost chips sit on the bubble, so they take the window's colour. */
+.chat-bubble .boost-chip { background-color: var(--window-bg-color); }
