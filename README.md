@@ -6,6 +6,12 @@ window, updated live from Basecamp's event feed. *Skáli* is Old Norse for a hal
 
 Skali is an independent project. It is not made or endorsed by 37signals.
 
+![A Campfire chat in Skali](data/screenshots/chat.png)
+
+| A message, its boosts and comments | A project and its tools |
+| --- | --- |
+| ![A message in Skali](data/screenshots/message.png) | ![A project in Skali](data/screenshots/project.png) |
+
 ## What it does
 
 - **Projects**: every tool in a project's dock. Projects often have several Chats or Message

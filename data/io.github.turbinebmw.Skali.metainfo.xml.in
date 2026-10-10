@@ -30,6 +30,20 @@
   <url type="vcs-browser">https://github.com/turbinebmw/Skali</url>
   <url type="bugtracker">https://github.com/turbinebmw/Skali/issues</url>
   <translation type="gettext">skali</translation>
+  <screenshots>
+    <screenshot type="default">
+      <image>https://raw.githubusercontent.com/turbineBMW/Skali/main/data/screenshots/chat.png</image>
+      <caption>A Campfire chat, with mentions and links</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/turbineBMW/Skali/main/data/screenshots/message.png</image>
+      <caption>A message with its boosts and comments</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/turbineBMW/Skali/main/data/screenshots/project.png</image>
+      <caption>A project and its tools</caption>
+    </screenshot>
+  </screenshots>
   <content_rating type="oars-1.1"/>
 
   <releases>

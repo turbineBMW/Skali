@@ -35,6 +35,12 @@ pub fn format(template: &str, pairs: &[(&str, &str)]) -> String {
     text
 }
 
+/// `singular` or `plural` as the language counts `n` (`ngettext`); the
+/// pot script extracts both.
+pub fn plural(singular: &str, plural: &str, n: usize) -> String {
+    gettextrs::ngettext(singular, plural, u32::try_from(n).unwrap_or(u32::MAX))
+}
+
 /// What to tell the user about an error, in a sentence.
 pub fn failure_message(error: &ApiError) -> String {
     match error {
