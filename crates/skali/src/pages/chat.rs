@@ -3,7 +3,9 @@
 //! display, and scrolling to the top fetches the next (older) page and
 //! prepends it, keeping what was on screen where it was. Each line is a
 //! bubble, yours on the right; boosts sit inside it, and hovering a line
-//! shows the button that adds one.
+//! shows the button that adds one. An upload line shows its images (GIFs
+//! playing) and names its other files. The composer has an emoji picker
+//! and a GIF picker; a GIF goes up as a Campfire upload.
 
 use super::{avatar, shell, time_label};
 use crate::i18n::gettext;
@@ -12,7 +14,9 @@ use crate::window::SkaliWindow;
 use adw::prelude::*;
 use gtk::glib;
 use skali_core::api::Client;
-use skali_core::models::{Boost, ChatLine, Person};
+use skali_core::error::ApiError;
+use skali_core::gif::{self, Gif, GifError};
+use skali_core::models::{Boost, ChatAttachment, ChatLine, Person};
 use skali_core::richtext;
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
@@ -26,6 +30,15 @@ const AVATAR_SIZE: i32 = 40;
 const BUBBLE_WIDTH: i32 = 680;
 /// The room a bubble leaves on the side it isn't on.
 const LANE_INDENT: i32 = 64;
+/// The box an uploaded image is scaled down to fit.
+const IMAGE_WIDTH: i32 = 360;
+const IMAGE_HEIGHT: i32 = 320;
+
+/// Why a GIF didn't make it: KLIPY's side, or Basecamp's.
+enum GifSendError {
+    Gif(GifError),
+    Api(ApiError),
+}
 
 /// What the page remembers between fetches, shared by the scroll handler,
 /// the fetch callbacks and the live feed.
@@ -95,6 +108,59 @@ impl ChatView {
                                 );
                             }
                             entry.grab_focus();
+                        }
+                    }
+                }
+            ),
+        );
+    }
+
+    /// Fetch a GIF from KLIPY and post it to the chat as an upload. Once
+    /// Basecamp has it, it joins the picker's recently sent.
+    fn send_gif(self: &Rc<Self>, gif: Gif, button: &gtk::MenuButton) {
+        button.set_sensitive(false);
+        let client = self.client.clone();
+        let chat_id = self.chat_id;
+        let url = gif.url.clone();
+        // KLIPY's file name, unless it has none worth keeping.
+        let name = url
+            .rsplit('/')
+            .next()
+            .filter(|name| name.ends_with(".gif"))
+            .unwrap_or("animation.gif")
+            .to_string();
+        rt::run(
+            async move {
+                let bytes = gif::download(&url).await.map_err(GifSendError::Gif)?;
+                client
+                    .upload_to_chat(chat_id, &name, "image/gif", bytes)
+                    .await
+                    .map_err(GifSendError::Api)
+            },
+            glib::clone!(
+                #[strong(rename_to = view)]
+                self,
+                #[weak]
+                button,
+                move |result| {
+                    button.set_sensitive(true);
+                    let Some(window) = view.window.upgrade() else {
+                        return;
+                    };
+                    match result {
+                        Ok(line) => {
+                            gif::remember(&window.db().borrow(), &gif);
+                            view.pinned.set(true);
+                            view.append_live(&line);
+                            view.stack.set_visible_child_name("lines");
+                        }
+                        Err(GifSendError::Api(error)) => window.report(
+                            &format!("could not post a GIF to the chat {}", view.title),
+                            &error,
+                        ),
+                        Err(GifSendError::Gif(error)) => {
+                            tracing::error!("could not fetch the GIF {}: {error}", gif.url);
+                            window.toast(&crate::i18n::gif_failure_message(&error));
                         }
                     }
                 }
@@ -371,6 +437,70 @@ impl ChatView {
         );
     }
 
+    /// A file in an upload line: an image shown (fetched with the sign-in,
+    /// a GIF playing), anything else by name, opening Basecamp's page for
+    /// it in the browser.
+    fn attachment(&self, line: &ChatLine, attachment: &ChatAttachment) -> gtk::Widget {
+        if !attachment.is_image() {
+            let button = gtk::Button::builder()
+                .child(
+                    &adw::ButtonContent::builder()
+                        .icon_name("mail-attachment-symbolic")
+                        .label(&attachment.filename)
+                        .build(),
+                )
+                .tooltip_text(gettext("Open in the browser"))
+                .halign(gtk::Align::Start)
+                .css_classes(["flat"])
+                .build();
+            let app_url = line.recording.app_url.clone();
+            button.connect_clicked(move |button| {
+                if let Some(window) = button.root().and_downcast::<SkaliWindow>() {
+                    window.open_in_browser(&app_url);
+                }
+            });
+            return button.upcast();
+        }
+        let picture = gtk::Picture::builder()
+            .content_fit(gtk::ContentFit::Contain)
+            .can_shrink(true)
+            .overflow(gtk::Overflow::Hidden)
+            .halign(gtk::Align::Start)
+            .alternative_text(&attachment.filename)
+            .tooltip_text(&attachment.filename)
+            .css_classes(["chat-image"])
+            .build();
+        let client = self.client.clone();
+        let url = attachment.download_url.clone();
+        let filename = attachment.filename.clone();
+        rt::run(
+            async move { client.get_bytes(&url).await },
+            glib::clone!(
+                #[weak]
+                picture,
+                move |result| match result {
+                    Ok(bytes) => match crate::widgets::gifs::show_image(&picture, &bytes) {
+                        Some((width, height)) => {
+                            let (width, height) = (width.max(1) as f64, height.max(1) as f64);
+                            let scale = (IMAGE_WIDTH as f64 / width)
+                                .min(IMAGE_HEIGHT as f64 / height)
+                                .min(1.0);
+                            picture.set_size_request(
+                                (width * scale).round() as i32,
+                                (height * scale).round() as i32,
+                            );
+                        }
+                        None => tracing::warn!("the chat image {filename} didn't decode"),
+                    },
+                    Err(error) => {
+                        tracing::warn!("could not fetch the chat image {filename}: {error}")
+                    }
+                }
+            ),
+        );
+        picture.upcast()
+    }
+
     /// One line, as a bubble: yours on the right, everyone else's on the
     /// left. In a run of lines by the same person within minutes, only the
     /// first carries the avatar, name and time.
@@ -470,6 +600,7 @@ impl ChatView {
             richtext::escape(&line.content)
         };
         body.set_markup(&markup);
+        body.set_visible(!line.content.is_empty());
         // A link to a Basecamp item opens on Skali's page for it.
         body.connect_activate_link(
             |label, uri| match label.root().and_downcast::<SkaliWindow>() {
@@ -478,6 +609,9 @@ impl ChatView {
             },
         );
         bubble.append(&body);
+        for attachment in &line.attachments {
+            bubble.append(&self.attachment(line, attachment));
+        }
         let line_id = line.recording.id;
         let chips = gtk::Box::builder()
             .spacing(6)
@@ -617,6 +751,41 @@ pub fn page(
         entry,
         move |_| view.send(&entry)
     ));
+    // GTK's emoji chooser, typing the one picked where the cursor is.
+    let emoji_chooser = gtk::EmojiChooser::new();
+    emoji_chooser.connect_emoji_picked(glib::clone!(
+        #[weak]
+        entry,
+        move |_, emoji| {
+            entry.delete_selection();
+            let mut position = entry.position();
+            entry.insert_text(emoji, &mut position);
+            entry.set_position(position);
+        }
+    ));
+    emoji_chooser.connect_closed(glib::clone!(
+        #[weak]
+        entry,
+        move |_| {
+            entry.grab_focus_without_selecting();
+        }
+    ));
+    let emoji = gtk::MenuButton::builder()
+        .icon_name("face-smile-symbolic")
+        .tooltip_text(gettext("Insert an emoji"))
+        .popover(&emoji_chooser)
+        .sensitive(writes_allowed)
+        .css_classes(["circular"])
+        .build();
+    let gif_button = crate::widgets::gifs::picker_button(window, {
+        let view = Rc::downgrade(&view);
+        move |button, gif| {
+            if let Some(view) = view.upgrade() {
+                view.send_gif(gif, button);
+            }
+        }
+    });
+    gif_button.set_sensitive(writes_allowed);
     let composer = gtk::Box::builder()
         .orientation(gtk::Orientation::Horizontal)
         .spacing(8)
@@ -625,15 +794,14 @@ pub fn page(
         .margin_start(12)
         .margin_end(12)
         .build();
+    composer.append(&gif_button);
+    composer.append(&emoji);
     composer.append(&entry);
     composer.append(&send);
-    let clamp = adw::Clamp::builder()
-        .maximum_size(900)
-        .tightening_threshold(700)
-        .child(&composer)
-        .build();
+    // The whole width of the pane, as in Bubo: the entry takes what the
+    // buttons leave.
     if let Some(toolbar) = page.child().and_downcast::<adw::ToolbarView>() {
-        toolbar.add_bottom_bar(&clamp);
+        toolbar.add_bottom_bar(&composer);
     }
     // Focus once the page is on screen; before that the sidebar keeps it.
     if writes_allowed {

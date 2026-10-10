@@ -66,3 +66,9 @@ button.boost-chip:hover { background-color: alpha(currentColor, 0.07); }
 .chat-name { font-weight: bold; }
 /* Boost chips sit on the bubble, so they take the window's colour. */
 .chat-bubble .boost-chip { background-color: var(--window-bg-color); }
+
+/* The composer's GIF button: a word in a round button. */
+.gif-button > button { font-size: 0.75em; font-weight: bold; padding: 0 6px; }
+/* The GIF picker's tiles and the images in upload lines, rounded. */
+button.gif-tile { padding: 0; border-radius: 8px; }
+button.gif-tile picture, picture.chat-image { border-radius: 8px; }

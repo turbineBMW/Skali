@@ -415,6 +415,7 @@ mod tests {
                 ..Default::default()
             },
             content: text.into(),
+            attachments: Vec::new(),
         }
     }
 

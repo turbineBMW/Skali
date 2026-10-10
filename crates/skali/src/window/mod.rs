@@ -186,11 +186,11 @@ impl SkaliWindow {
         window
     }
 
-    fn db(&self) -> Rc<RefCell<Database>> {
+    pub fn db(&self) -> Rc<RefCell<Database>> {
         self.imp().db.get().expect("set in new").clone()
     }
 
-    fn settings(&self) -> &gio::Settings {
+    pub fn settings(&self) -> &gio::Settings {
         self.imp().settings.get().expect("set in new")
     }
 
