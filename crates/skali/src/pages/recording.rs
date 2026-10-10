@@ -4,7 +4,7 @@
 //! inlined; the document is rendered again as they arrive, and as
 //! comments do.
 
-use super::{avatar, count_label, shell, time_label};
+use super::{avatar, count_label, shell_with_header, time_label};
 use crate::i18n::gettext;
 use crate::rt;
 use crate::widgets::attachments::{self, AttachmentPicker};
@@ -41,6 +41,8 @@ pub struct RecordingPage {
     /// `data:` URIs by attachment sgid, once fetched.
     images: RefCell<HashMap<String, String>>,
     fetching: RefCell<HashSet<String>>,
+    /// `RecordingDoc::extra_html`, as last set.
+    extra_html: RefCell<String>,
     /// The comment a link to it asked to see, scrolled to on every render.
     focus: Cell<Option<i64>>,
     view: RichTextView,
@@ -54,6 +56,12 @@ impl RecordingPage {
     /// Scroll to this comment, now and whenever the document is redrawn.
     pub fn focus_comment(&self, comment_id: i64) {
         self.focus.set(Some(comment_id));
+        self.render();
+    }
+
+    /// Replace what's shown between the body and the comments.
+    pub fn set_extra_html(&self, html: String) {
+        *self.extra_html.borrow_mut() = html;
         self.render();
     }
 
@@ -84,7 +92,7 @@ impl RecordingPage {
             "<article>{}</article>",
             richtext::expand_attachments(&self.doc.content, resolve)
         );
-        body.push_str(&self.doc.extra_html);
+        body.push_str(&self.extra_html.borrow());
         let comments = self.comments.borrow();
         let count = comments.len().max(self.doc.comments_count as usize);
         body.push_str(&format!(
@@ -171,6 +179,16 @@ pub fn recording_page(
     client: Client,
     doc: RecordingDoc,
 ) -> adw::NavigationPage {
+    recording_page_parts(window, client, doc).0
+}
+
+/// `recording_page`, with its header bar for the page's own buttons and the
+/// page itself, for whoever changes what it shows.
+pub fn recording_page_parts(
+    window: &SkaliWindow,
+    client: Client,
+    mut doc: RecordingDoc,
+) -> (adw::NavigationPage, adw::HeaderBar, Rc<RecordingPage>) {
     let column = gtk::Box::new(gtk::Orientation::Vertical, 12);
     column.set_margin_start(12);
     column.set_margin_end(12);
@@ -195,6 +213,7 @@ pub fn recording_page(
     let comments_count = doc.comments_count;
     let recording_id = doc.id;
     let page_title = doc.title.clone();
+    let extra_html = std::mem::take(&mut doc.extra_html);
     let page = Rc::new(RecordingPage {
         window: window.downgrade(),
         client: client.clone(),
@@ -202,6 +221,7 @@ pub fn recording_page(
         comments: RefCell::new(Vec::new()),
         images: RefCell::new(HashMap::new()),
         fetching: RefCell::new(HashSet::new()),
+        extra_html: RefCell::new(extra_html),
         focus: Cell::new(None),
         view,
     });
@@ -234,7 +254,7 @@ pub fn recording_page(
         );
     }
 
-    let nav_page = shell(&page_title, &clamp);
+    let (nav_page, header) = shell_with_header(&page_title, &clamp);
     if let Some(toolbar) = nav_page.child().and_downcast::<adw::ToolbarView>() {
         let composer = comment_composer(&page);
         let composer_clamp = adw::Clamp::builder()
@@ -244,7 +264,7 @@ pub fn recording_page(
             .build();
         toolbar.add_bottom_bar(&composer_clamp);
     }
-    nav_page
+    (nav_page, header, page)
 }
 
 pub fn byline(
