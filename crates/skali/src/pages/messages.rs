@@ -92,6 +92,7 @@ pub fn board_page(
                         stack.set_visible_child_name("empty");
                         return;
                     }
+                    window.keep_for_search(&client_for_rows, &page.items);
                     for message in page.items {
                         list.append(&message_row(&window, &client_for_rows, message));
                     }

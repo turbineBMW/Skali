@@ -17,7 +17,7 @@ use gtk::glib;
 use skali_core::api::{Client, SharedToken};
 use skali_core::db::Database;
 use skali_core::error::ApiError;
-use skali_core::models::{Account, Project};
+use skali_core::models::{Account, Project, Searchable};
 use std::cell::{OnceCell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -665,10 +665,14 @@ impl SkaliWindow {
                 self,
                 move |result| match result {
                     Ok(projects) => window.projects_loaded(account_id, projects),
-                    Err(error) => window.report(
-                        &format!("could not list projects of account {account_id}"),
-                        &error
-                    ),
+                    Err(error) => {
+                        window.report(
+                            &format!("could not list projects of account {account_id}"),
+                            &error,
+                        );
+                        // Offline, the cached projects are what there is.
+                        window.debug_open(account_id);
+                    }
                 }
             ),
         );
@@ -684,10 +688,38 @@ impl SkaliWindow {
         self.debug_open(account_id);
     }
 
+    /// Keep what a page fetched for searching offline.
+    pub fn keep_for_search<T: Searchable>(&self, client: &Client, items: &[T]) {
+        if items.is_empty() {
+            return;
+        }
+        let account_id = client.account_id();
+        if let Err(error) = self.db().borrow_mut().index_recordings(account_id, items) {
+            tracing::warn!(
+                "could not keep {} recordings of {account_id} for search: {error}",
+                items.len()
+            );
+        }
+    }
+
+    /// The account's kept recordings matching these words; see
+    /// `Database::search_recordings`.
+    pub fn search_kept(
+        &self,
+        client: &Client,
+        words: &str,
+        kind: Option<&str>,
+        newest_first: bool,
+    ) -> skali_core::error::Result<Vec<skali_core::models::SearchResult>> {
+        self.db()
+            .borrow()
+            .search_recordings(client.account_id(), words, kind, newest_first, 100)
+    }
+
     /// A developer hook: `SKALI_DEBUG_OPEN=<project id>[:<tool id>[:first]]`,
     /// or `hey`, `pings`, `assignments`, `bookmarks`, `timeline`, `notes` or `search[:<words>]`, or a web link (`https://...`) the
     /// way Hey! opens one, opens that page as soon as the account's projects
-    /// are listed, for a look without clicking through; `:first` goes on
+    /// are listed (or fail to be, offline), for a look without clicking through; `:first` goes on
     /// into the tool's first item. Acted on once, for the first account
     /// whose projects arrive, or the one `SKALI_DEBUG_ACCOUNT=<id>` names.
     fn debug_open(&self, account_id: i64) {

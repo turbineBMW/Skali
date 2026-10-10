@@ -59,7 +59,9 @@ crates/skali-core/src/     no widgets; everything here is unit-tested (`cargo te
   auth.rs      Launchpad OAuth: authorize URL, loopback callback listener, exchange, refresh,
                authorization.json (identity + accounts). TokenSet's Debug hides the tokens.
   secrets.rs   oo7 keyring: one JSON TokenSet per Launchpad identity
-  db.rs        rusqlite; schema + append-only MIGRATIONS tracked by PRAGMA user_version
+  db.rs        rusqlite; schema + append-only MIGRATIONS tracked by PRAGMA user_version;
+               the search index (FTS5 over the text of every recording a page fetched:
+               pages hand what they load to `SkaliWindow::keep_for_search`)
   models.rs    serde structs for what we read (Authorization, Account, Project, DockTool, Person)
   error.rs     ApiError (+ is_transient)
   feed.rs      the event feed: stream ticket + Action Cable WebSocket (run_stream), the poll lane,

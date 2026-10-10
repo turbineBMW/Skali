@@ -62,6 +62,8 @@ pub fn vault_page(
             column,
             move |result| match result {
                 Ok(contents) => {
+                    window.keep_for_search(&client_for_rows, &contents.documents);
+                    window.keep_for_search(&client_for_rows, &contents.uploads);
                     if contents.folders.is_empty()
                         && contents.documents.is_empty()
                         && contents.uploads.is_empty()

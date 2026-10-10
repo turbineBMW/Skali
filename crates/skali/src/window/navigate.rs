@@ -148,6 +148,7 @@ impl SkaliWindow {
     }
 
     pub fn open_message(&self, client: Client, message: Message) {
+        self.keep_for_search(&client, std::slice::from_ref(&message));
         self.imp()
             .content_nav
             .push(&pages::messages::message_page(self, client, message));
@@ -170,6 +171,7 @@ impl SkaliWindow {
     }
 
     pub fn open_card(&self, client: Client, card: Card) {
+        self.keep_for_search(&client, std::slice::from_ref(&card));
         self.imp()
             .content_nav
             .push(&pages::cards::card_page(self, client, card));
@@ -182,24 +184,28 @@ impl SkaliWindow {
     }
 
     pub fn open_document(&self, client: Client, document: Document) {
+        self.keep_for_search(&client, std::slice::from_ref(&document));
         self.imp()
             .content_nav
             .push(&pages::docs::document_page(self, client, document));
     }
 
     pub fn open_upload(&self, client: Client, upload: Upload) {
+        self.keep_for_search(&client, std::slice::from_ref(&upload));
         self.imp()
             .content_nav
             .push(&pages::docs::upload_page(self, client, upload));
     }
 
     pub fn open_schedule_entry(&self, client: Client, entry: ScheduleEntry) {
+        self.keep_for_search(&client, std::slice::from_ref(&entry));
         self.imp()
             .content_nav
             .push(&pages::schedule::entry_page(self, client, entry));
     }
 
     pub fn open_todolist(&self, client: Client, list: Todolist) {
+        self.keep_for_search(&client, std::slice::from_ref(&list));
         self.imp()
             .content_nav
             .push(&pages::todos::list_page(self, client, list));
