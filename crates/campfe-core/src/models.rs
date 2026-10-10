@@ -2,12 +2,23 @@
 //! doesn't name, since the API adds some without a version change.
 
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
+
+/// `#[serde(default)]` covers a missing field, not a `null` one; Basecamp
+/// sends both for the same field at different times.
+fn null_default<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Default + Deserialize<'de>,
+{
+    Ok(Option::<T>::deserialize(deserializer)?.unwrap_or_default())
+}
 
 /// What Launchpad says about a token: who it belongs to and which Basecamp
 /// accounts it opens.
 #[derive(Clone, Debug, Deserialize)]
 pub struct Authorization {
+    #[serde(default)]
     pub expires_at: Option<DateTime<Utc>>,
     pub identity: Identity,
     #[serde(default)]
@@ -19,11 +30,11 @@ pub struct Authorization {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct Identity {
     pub id: i64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     pub first_name: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     pub last_name: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     pub email_address: String,
 }
 
@@ -39,12 +50,15 @@ impl Identity {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct LaunchpadAccount {
     pub id: i64,
+    #[serde(default, deserialize_with = "null_default")]
     pub name: String,
+    #[serde(default, deserialize_with = "null_default")]
     pub product: String,
     /// The API base URL for this account: `https://3.basecampapi.com/<id>`.
+    #[serde(default, deserialize_with = "null_default")]
     pub href: String,
     /// Where the web app lives: `https://3.basecamp.com/<id>`.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     pub app_href: String,
 }
 
@@ -71,22 +85,22 @@ pub struct Account {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Default)]
 pub struct Person {
     pub id: i64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     pub name: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     pub email_address: String,
     #[serde(default)]
     pub title: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     pub avatar_url: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     pub admin: bool,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     pub owner: bool,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     pub client: bool,
     /// An open set: User, Agent, Integration, Outsider, Client, Tombstone...
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     pub personable_type: String,
 }
 
@@ -99,35 +113,36 @@ pub struct DockTool {
     /// `questionnaire`, `inbox`, `kanban_board`.
     pub name: String,
     /// What the project calls it ("Chat", "Alt Chat").
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     pub title: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     pub enabled: bool,
     #[serde(default)]
     pub position: Option<i64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     pub url: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     pub app_url: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct Project {
     pub id: i64,
+    #[serde(default, deserialize_with = "null_default")]
     pub name: String,
     #[serde(default)]
     pub description: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     pub purpose: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     pub status: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     pub bookmarked: bool,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     pub url: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_default")]
     pub app_url: String,
     #[serde(default)]
     pub dock: Vec<DockTool>,
@@ -159,6 +174,15 @@ mod tests {
         let project: Project = serde_json::from_str(json).unwrap();
         let titles: Vec<_> = project.enabled_tools().map(|t| t.title.as_str()).collect();
         assert_eq!(titles, ["Chat", "Alt Chat"]);
+    }
+
+    #[test]
+    fn nulls_read_as_empty() {
+        let json = r#"{"identity": {"id": 1, "first_name": null, "last_name": "W", "email_address": null},
+            "accounts": [{"id": 2, "name": null, "product": "bc3", "href": "h", "app_href": null}]}"#;
+        let auth: Authorization = serde_json::from_str(json).unwrap();
+        assert_eq!(auth.identity.full_name(), "W");
+        assert_eq!(auth.accounts[0].app_href, "");
     }
 
     #[test]

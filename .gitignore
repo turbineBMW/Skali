@@ -1,4 +1,4 @@
 target/
 po/.rust-files
 po/.blp-files
-.cargo/config.toml
+.cargo/

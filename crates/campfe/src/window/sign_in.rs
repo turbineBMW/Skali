@@ -18,9 +18,20 @@ pub struct SignedIn {
     pub authorization: Authorization,
 }
 
+/// A sign-in in flight: the page the browser was sent to, so it can be
+/// sent again if the tab was closed, and the way to call it off.
+pub struct PendingSignIn {
+    url: String,
+    cancel: Option<tokio::sync::oneshot::Sender<()>>,
+}
+
 impl CampfeWindow {
+    /// Start a sign-in, or, with one already waiting, send the browser to
+    /// its page again (closing the tab leaves the listener none the wiser).
     pub fn start_sign_in(&self) {
-        if self.state().is_signing_in {
+        let pending_url = self.state().sign_in.as_ref().map(|p| p.url.clone());
+        if let Some(url) = pending_url {
+            self.open_browser(&url);
             return;
         }
         let app = config::oauth_app();
@@ -32,21 +43,45 @@ impl CampfeWindow {
         }
         let state = glib::uuid_string_random().to_string();
         let url = app.authorize_url(&state);
-        self.state_mut().is_signing_in = true;
+        let (cancel, cancelled) = tokio::sync::oneshot::channel();
+        self.state_mut().sign_in = Some(PendingSignIn {
+            url: url.clone(),
+            cancel: Some(cancel),
+        });
         self.imp()
             .main_stack
             .set_visible_child_name(PAGE_SIGNING_IN);
 
         // Listen first, then open the browser, so the redirect can't beat us.
         rt::run(
-            async move { sign_in(app, state).await },
+            async move {
+                tokio::select! {
+                    result = sign_in(app, state) => result,
+                    _ = cancelled => Err(ApiError::Auth(gettext("cancelled"))),
+                }
+            },
             glib::clone!(
                 #[weak(rename_to = window)]
                 self,
                 move |result| window.sign_in_finished(result)
             ),
         );
-        gtk::UriLauncher::new(&url).launch(
+        self.open_browser(&url);
+    }
+
+    pub fn cancel_sign_in(&self) {
+        let cancel = self
+            .state_mut()
+            .sign_in
+            .as_mut()
+            .and_then(|pending| pending.cancel.take());
+        if let Some(cancel) = cancel {
+            let _ = cancel.send(());
+        }
+    }
+
+    fn open_browser(&self, url: &str) {
+        gtk::UriLauncher::new(url).launch(
             Some(self),
             gio::Cancellable::NONE,
             glib::clone!(
@@ -63,11 +98,15 @@ impl CampfeWindow {
     }
 
     fn sign_in_finished(&self, result: Result<SignedIn>) {
-        self.state_mut().is_signing_in = false;
+        self.state_mut().sign_in = None;
         let signed_in = match result {
             Ok(signed_in) => signed_in,
             Err(error) => {
-                self.report("sign-in failed", &error);
+                if matches!(&error, ApiError::Auth(reason) if reason == &gettext("cancelled")) {
+                    tracing::info!("sign-in cancelled");
+                } else {
+                    self.report("sign-in failed", &error);
+                }
                 let page = if self.state().accounts.is_empty() {
                     PAGE_NO_ACCOUNT
                 } else {

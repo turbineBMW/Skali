@@ -49,10 +49,22 @@ template $CampfeWindow: Adw.ApplicationWindow {
           content: Adw.StatusPage {
             title: _("Waiting for Basecamp…");
             description: _("Finish signing in in your browser, then come back here.");
-            child: Adw.Spinner {
-              width-request: 48;
-              height-request: 48;
-              halign: center;
+            child: Gtk.Box {
+              orientation: vertical;
+              spacing: 24;
+
+              Adw.Spinner {
+                width-request: 48;
+                height-request: 48;
+                halign: center;
+              }
+
+              Gtk.Button cancel_sign_in_button {
+                label: _("Cancel");
+                halign: center;
+
+                styles ["pill"]
+              }
             };
           };
         };

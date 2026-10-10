@@ -14,9 +14,9 @@ just run       # from a checkout (needs gtk4 ≥ 4.18, libadwaita ≥ 1.8, bluep
 just install   # release build into ~/.local
 ```
 
-Signing in needs a Launchpad integration (https://launchpad.37signals.com/integrations) with
-the redirect URI `http://127.0.0.1:8976/callback`; build with its credentials in
-`CAMPFE_OAUTH_CLIENT_ID` and `CAMPFE_OAUTH_CLIENT_SECRET`.
+Sign-in uses Campfe's own Launchpad integration. To use another, set `CAMPFE_OAUTH_CLIENT_ID` and
+`CAMPFE_OAUTH_CLIENT_SECRET` at build or run time; its redirect URI must be
+`http://127.0.0.1:8976/callback`.
 
 ## License
 

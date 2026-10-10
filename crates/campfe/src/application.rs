@@ -158,7 +158,17 @@ impl CampfeApplication {
         let quit = gio::ActionEntry::builder("quit")
             .activate(|app: &Self, _, _| app.quit())
             .build();
-        self.add_action_entries([about, quit]);
+        // Reachable from outside (`gapplication action <id> sign-in`), which
+        // the window's own action isn't.
+        let sign_in = gio::ActionEntry::builder("sign-in")
+            .activate(|app: &Self, _, _| {
+                app.activate();
+                if let Some(window) = app.main_window() {
+                    window.start_sign_in();
+                }
+            })
+            .build();
+        self.add_action_entries([about, quit, sign_in]);
 
         for (name, accels) in [
             ("app.quit", &["<control>q"][..]),

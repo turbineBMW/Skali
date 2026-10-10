@@ -23,12 +23,13 @@ sqlite is bundled by rusqlite; TLS is rustls. Edition 2024, MSRV 1.88.
 `CAMPFE_LOG=debug` (any `tracing` EnvFilter) turns stderr logging up; `~/.cache/campfe/campfe.log`
 always has debug. To exercise the app without touching real data: `XDG_DATA_HOME=<dir> cargo run`.
 
-**Sign-in needs a Launchpad integration.** The client id/secret are baked in at build time from
-`CAMPFE_OAUTH_CLIENT_ID` / `CAMPFE_OAUTH_CLIENT_SECRET` (the same variables at run time override).
-The redirect URI registered with it must be exactly `http://127.0.0.1:8976/callback`.
+**Sign-in uses Campfe's own Launchpad integration**, whose public client id/secret are in
+`config.rs` (as 37signals' CLI ships its own). `CAMPFE_OAUTH_CLIENT_ID` / `CAMPFE_OAUTH_CLIENT_SECRET`
+at build or run time swap in another; its redirect URI must be exactly
+`http://127.0.0.1:8976/callback`.
 
-**Never write to a real project while developing.** Run with `CAMPFE_WRITE_ACCOUNTS=<sandbox
-account id>`: the API client then refuses POST/PUT/DELETE to every other account
+**Never write to a real project while developing.** Run with `CAMPFE_WRITE_ACCOUNTS=1000002` (the
+sandbox account "Sandbox", sandbox@example.com, a separate Launchpad identity): the API client then refuses POST/PUT/DELETE to every other account
 (`ApiError::ReadOnly`). The Example Co account (1000001) is real people's work; test posts go to
 the sandbox account only. The same goes for the `basecamp` CLI and the Basecamp MCP in this
 session: reads only against Example Co.

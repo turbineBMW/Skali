@@ -196,7 +196,12 @@ pub async fn authorization(http: &reqwest::Client, access_token: &str) -> Result
             message: response.text().await.unwrap_or_default(),
         });
     }
-    Ok(response.json().await?)
+    let body = response.text().await?;
+    serde_json::from_str(&body).map_err(|error| {
+        // No secret in this document: an identity and account names.
+        tracing::debug!("authorization.json did not parse ({error}): {body}");
+        ApiError::Decode(error)
+    })
 }
 
 /// The page the browser shows once it has been sent back to us.

@@ -38,7 +38,8 @@ pub struct State {
     pub tokens: HashMap<i64, SharedToken>,
     /// The projects last listed, per account.
     pub projects: HashMap<i64, Vec<Project>>,
-    pub is_signing_in: bool,
+    /// A sign-in waiting for the browser to come back.
+    pub sign_in: Option<sign_in::PendingSignIn>,
 }
 
 mod imp {
@@ -53,6 +54,8 @@ mod imp {
         pub main_stack: TemplateChild<gtk::Stack>,
         #[template_child]
         pub sign_in_button: TemplateChild<gtk::Button>,
+        #[template_child]
+        pub cancel_sign_in_button: TemplateChild<gtk::Button>,
         #[template_child]
         pub split: TemplateChild<adw::NavigationSplitView>,
         #[template_child]

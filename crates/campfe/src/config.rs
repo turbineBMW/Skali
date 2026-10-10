@@ -7,16 +7,17 @@ pub const GETTEXT_DOMAIN: &str = "campfe";
 
 /// The Launchpad integration Campfe signs in as. These are the public
 /// credentials of a native app, as 37signals' own CLI ships its own: they
-/// identify the app, not a user. Set at build time
-/// (`CAMPFE_OAUTH_CLIENT_ID`/`_SECRET`); the same variables at run time
-/// override, for a developer's own integration.
+/// identify the app, not a user, and the redirect is pinned to the
+/// loopback port, so they open nothing on their own. `CAMPFE_OAUTH_CLIENT_ID`
+/// and `CAMPFE_OAUTH_CLIENT_SECRET`, at build or run time, swap in another
+/// integration.
 pub const OAUTH_CLIENT_ID: &str = match option_env!("CAMPFE_OAUTH_CLIENT_ID") {
     Some(id) => id,
-    None => "",
+    None => "426dcf4e3de7cd87e80e04b7840643e0ad8493b9",
 };
 pub const OAUTH_CLIENT_SECRET: &str = match option_env!("CAMPFE_OAUTH_CLIENT_SECRET") {
     Some(secret) => secret,
-    None => "",
+    None => "5ee7c953eb55c614fa4bf2a9f92b3a83c0ba873f",
 };
 /// Registered with the integration; must match exactly.
 pub const OAUTH_REDIRECT_URI: &str = "http://127.0.0.1:8976/callback";
