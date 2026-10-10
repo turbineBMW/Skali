@@ -14,11 +14,12 @@ pub mod project;
 pub mod recording;
 pub mod schedule;
 pub mod search;
+pub mod timeline;
 pub mod todos;
 
 use crate::i18n::gettext;
 use adw::prelude::*;
-use chrono::{DateTime, Datelike, Local, Utc};
+use chrono::{DateTime, Datelike, Duration, Local, NaiveDate, Utc};
 use skali_core::models::Person;
 
 /// A header bar, a page title and a content area with the usual chrome.
@@ -110,6 +111,22 @@ pub fn time_label(time: Option<DateTime<Utc>>) -> String {
         local.format("%b %-d").to_string()
     } else {
         local.format("%b %-d, %Y").to_string()
+    }
+}
+
+/// A day as a heading: Today, Yesterday, Tomorrow, or its date.
+pub fn day_label(day: NaiveDate) -> String {
+    let today = Local::now().date_naive();
+    if day == today {
+        gettext("Today")
+    } else if day == today - Duration::days(1) {
+        gettext("Yesterday")
+    } else if day == today + Duration::days(1) {
+        gettext("Tomorrow")
+    } else if day.year() == today.year() {
+        day.format("%A, %B %-d").to_string()
+    } else {
+        day.format("%A, %B %-d, %Y").to_string()
     }
 }
 

@@ -4,7 +4,7 @@
 //! and comments.
 
 use super::recording::RecordingDoc;
-use super::{avatar, shell};
+use super::{avatar, day_label, shell};
 use crate::i18n::gettext;
 use crate::rt;
 use crate::window::SkaliWindow;
@@ -355,20 +355,6 @@ fn when_label(entry: &ScheduleEntry) -> String {
             date_label(end_day),
             time(end)
         )
-    }
-}
-
-/// A day as a heading: Today, Tomorrow, or its date.
-fn day_label(day: NaiveDate) -> String {
-    let today = Local::now().date_naive();
-    if day == today {
-        gettext("Today")
-    } else if day == today + Duration::days(1) {
-        gettext("Tomorrow")
-    } else if day.year() == today.year() {
-        day.format("%A, %B %-d").to_string()
-    } else {
-        day.format("%A, %B %-d, %Y").to_string()
     }
 }
 

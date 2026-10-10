@@ -45,6 +45,9 @@ pub enum SidebarEntry {
     Bookmarks {
         account_id: i64,
     },
+    Timeline {
+        account_id: i64,
+    },
     Search {
         account_id: i64,
     },
@@ -269,6 +272,7 @@ impl SkaliWindow {
                     SidebarEntry::Pings { account_id } => window.open_pings(account_id),
                     SidebarEntry::Assignments { account_id } => window.open_assignments(account_id),
                     SidebarEntry::Bookmarks { account_id } => window.open_bookmarks(account_id),
+                    SidebarEntry::Timeline { account_id } => window.open_timeline(account_id),
                     SidebarEntry::Search { account_id } => window.open_search(account_id, ""),
                     SidebarEntry::Header(_) => {}
                     SidebarEntry::Project {
@@ -584,7 +588,7 @@ impl SkaliWindow {
     }
 
     /// A developer hook: `SKALI_DEBUG_OPEN=<project id>[:<tool id>[:first]]`,
-    /// or `hey`, `pings`, `assignments`, `bookmarks` or `search[:<words>]`, or a web link (`https://...`) the
+    /// or `hey`, `pings`, `assignments`, `bookmarks`, `timeline` or `search[:<words>]`, or a web link (`https://...`) the
     /// way Hey! opens one, opens that page as soon as the account's projects
     /// are listed, for a look without clicking through; `:first` goes on
     /// into the tool's first item. Acted on once.
@@ -611,13 +615,14 @@ impl SkaliWindow {
                 }
                 return;
             }
-            "hey" | "pings" | "assignments" | "bookmarks" => {
+            "hey" | "pings" | "assignments" | "bookmarks" | "timeline" => {
                 // SAFETY: the main thread, with no other thread reading the environment.
                 unsafe { std::env::remove_var("SKALI_DEBUG_OPEN") };
                 match target.as_str() {
                     "hey" => self.open_hey(account_id),
                     "pings" => self.open_pings(account_id),
                     "bookmarks" => self.open_bookmarks(account_id),
+                    "timeline" => self.open_timeline(account_id),
                     _ => self.open_assignments(account_id),
                 }
                 return;
@@ -721,6 +726,7 @@ impl SkaliWindow {
                 entries.push(SidebarEntry::Pings { account_id });
                 entries.push(SidebarEntry::Assignments { account_id });
                 entries.push(SidebarEntry::Bookmarks { account_id });
+                entries.push(SidebarEntry::Timeline { account_id });
                 entries.push(SidebarEntry::Search { account_id });
                 entries.push(SidebarEntry::Header(if several {
                     crate::i18n::format(
@@ -787,6 +793,7 @@ fn sidebar_row(entry: &SidebarEntry) -> gtk::Widget {
             (gettext("My Assignments"), "object-select-symbolic", 0)
         }
         SidebarEntry::Bookmarks { .. } => (gettext("My Bookmarks"), "starred-symbolic", 0),
+        SidebarEntry::Timeline { .. } => (gettext("Timeline"), "document-open-recent-symbolic", 0),
         SidebarEntry::Search { .. } => (gettext("Search"), "system-search-symbolic", 0),
         SidebarEntry::Project { project, .. } => (project.name.clone(), "", 0),
     };

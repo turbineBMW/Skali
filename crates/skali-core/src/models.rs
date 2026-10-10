@@ -354,6 +354,32 @@ pub struct Subscription {
     pub count: i64,
 }
 
+/// One entry of the account's timeline (`/reports/progress.json`): what
+/// happened, worded by Basecamp ("Annie added a comment"), on what, where.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Default)]
+pub struct ProgressEvent {
+    pub id: i64,
+    #[serde(default)]
+    pub created_at: Option<DateTime<Utc>>,
+    /// `comment_created`, `todo_completed`, ...
+    #[serde(default, deserialize_with = "null_default")]
+    pub kind: String,
+    #[serde(default, deserialize_with = "null_default")]
+    pub action: String,
+    /// The title of what it happened to.
+    #[serde(default, deserialize_with = "null_default")]
+    pub target: String,
+    /// Plain text: a comment's first words, a to-do's title.
+    #[serde(default, deserialize_with = "null_default")]
+    pub summary_excerpt: String,
+    #[serde(default, deserialize_with = "null_default")]
+    pub app_url: String,
+    #[serde(default)]
+    pub creator: Person,
+    #[serde(default)]
+    pub bucket: Bucket,
+}
+
 /// One of your bookmarks (`/my/bookmarks.json`): the recording, whole.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Default)]
 pub struct Bookmark {
@@ -1090,5 +1116,14 @@ mod boost_tests {
         let marks: Vec<Bookmark> = serde_json::from_str(json).unwrap();
         assert_eq!(marks[0].recording.kind, "Kanban::Card");
         assert_eq!(marks[0].recording.bucket.name, "My Project");
+        let json = r#"[{"id": 17252286298, "created_at": "2026-10-10T14:19:06.755Z",
+            "kind": "kanban_step_completed", "action": "Annie completed a subtask",
+            "target": "Design the card page", "summary_excerpt": "Sketch the header",
+            "app_url": "https://app.basecamp.com/1/buckets/2/card_tables/cards/5#__recording_6",
+            "creator": {"id": 7, "name": "Annie"}, "bucket": {"id": 2, "name": "My Project"},
+            "attachments": []}]"#;
+        let events: Vec<ProgressEvent> = serde_json::from_str(json).unwrap();
+        assert_eq!(events[0].target, "Design the card page");
+        assert_eq!(events[0].bucket.name, "My Project");
     }
 }

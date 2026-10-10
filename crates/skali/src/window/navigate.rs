@@ -83,6 +83,15 @@ impl SkaliWindow {
         });
     }
 
+    pub fn open_timeline(&self, account_id: i64) {
+        let Some(client) = self.client_for(account_id) else {
+            return;
+        };
+        self.show_root_page(&format!("timeline-{account_id}"), || {
+            pages::timeline::page(self, client)
+        });
+    }
+
     pub fn open_search(&self, account_id: i64, query: &str) {
         let Some(client) = self.client_for(account_id) else {
             return;
