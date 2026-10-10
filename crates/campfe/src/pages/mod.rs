@@ -2,8 +2,11 @@
 //! that builds an `Adw.NavigationPage`, starts its fetch through `rt::run`
 //! and fills itself in when the answer comes; the window only pushes it.
 
+pub mod assignments;
 pub mod chat;
+pub mod hey;
 pub mod messages;
+pub mod pings;
 pub mod project;
 pub mod todos;
 

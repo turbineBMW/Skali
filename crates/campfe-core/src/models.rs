@@ -81,9 +81,27 @@ pub struct Account {
     pub identity_email: String,
 }
 
+/// An id that is usually a number but may be a word: a notification's
+/// creator can be `"onboarding"` (Basecamp itself). Words read as 0.
+fn lenient_id<'de, D: Deserializer<'de>>(deserializer: D) -> Result<i64, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Id {
+        Number(i64),
+        Text(String),
+        Nothing(()),
+    }
+    Ok(match Id::deserialize(deserializer)? {
+        Id::Number(id) => id,
+        Id::Text(text) => text.parse().unwrap_or(0),
+        Id::Nothing(()) => 0,
+    })
+}
+
 /// A person in an account.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Default)]
 pub struct Person {
+    #[serde(default, deserialize_with = "lenient_id")]
     pub id: i64,
     #[serde(default, deserialize_with = "null_default")]
     pub name: String,
@@ -443,9 +461,14 @@ pub struct Reading {
     #[serde(default, deserialize_with = "null_default")]
     pub readable_sgid: String,
     #[serde(default, deserialize_with = "null_default")]
+    pub readable_identifier: String,
+    #[serde(default, deserialize_with = "null_default")]
     pub title: String,
+    /// `Message`, `Todo`, `Chat::Transcript`, `Onboarding`...
     #[serde(default, deserialize_with = "null_default", rename = "type")]
     pub kind: String,
+    #[serde(default, deserialize_with = "null_default")]
+    pub icon_type: String,
     #[serde(default, deserialize_with = "null_default")]
     pub bucket_name: String,
     #[serde(default)]
@@ -454,6 +477,8 @@ pub struct Reading {
     pub content_excerpt: String,
     #[serde(default, deserialize_with = "null_default")]
     pub app_url: String,
+    #[serde(default, deserialize_with = "null_default")]
+    pub unread_url: String,
     #[serde(default)]
     pub subscribed: bool,
 }
@@ -466,6 +491,48 @@ pub struct Readings {
     pub reads: Vec<Reading>,
     #[serde(default)]
     pub bubble_ups: Vec<Reading>,
+}
+
+/// A to-do or card assigned to the signed-in person, as My Assignments
+/// lists them: a projection, not the full recording.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Default)]
+pub struct Assignment {
+    pub id: i64,
+    #[serde(default, deserialize_with = "null_default")]
+    pub app_url: String,
+    #[serde(default, deserialize_with = "null_default")]
+    pub content: String,
+    #[serde(default)]
+    pub starts_on: Option<chrono::NaiveDate>,
+    #[serde(default)]
+    pub due_on: Option<chrono::NaiveDate>,
+    #[serde(default)]
+    pub bucket: Bucket,
+    #[serde(default)]
+    pub completed: bool,
+    /// `Todo` or `Kanban::Card`.
+    #[serde(default, deserialize_with = "null_default", rename = "type")]
+    pub kind: String,
+    #[serde(default)]
+    pub assignees: Vec<Person>,
+    #[serde(default)]
+    pub comments_count: i64,
+    #[serde(default)]
+    pub has_description: bool,
+    #[serde(default)]
+    pub parent: Option<Parent>,
+    /// A card's steps.
+    #[serde(default)]
+    pub children: Vec<Assignment>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Default)]
+pub struct Assignments {
+    /// "Up Next", in the person's order.
+    #[serde(default)]
+    pub priorities: Vec<Assignment>,
+    #[serde(default)]
+    pub non_priorities: Vec<Assignment>,
 }
 
 #[cfg(test)]
@@ -485,6 +552,17 @@ mod recording_tests {
         assert_eq!(line.recording.bucket.kind, "Project");
         assert!(line.is_rich_text());
         assert_eq!(line.recording.parent.unwrap().kind, "Chat::Transcript");
+    }
+
+    #[test]
+    fn a_readings_creator_may_be_a_word() {
+        let json = r#"{"id": 5, "section": "inbox", "type": "Onboarding",
+            "creator": {"id": "onboarding", "name": "Basecamp", "personable_type": "LocalPerson"}}"#;
+        let reading: Reading = serde_json::from_str(json).unwrap();
+        assert_eq!(reading.creator.id, 0);
+        assert_eq!(reading.creator.name, "Basecamp");
+        let numeric: Person = serde_json::from_str(r#"{"id": "42", "name": "x"}"#).unwrap();
+        assert_eq!(numeric.id, 42);
     }
 
     #[test]

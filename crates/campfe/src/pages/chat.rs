@@ -8,15 +8,15 @@ use crate::rt;
 use crate::window::CampfeWindow;
 use adw::prelude::*;
 use campfe_core::api::Client;
-use campfe_core::models::{ChatLine, DockTool, Project};
+use campfe_core::models::ChatLine;
 use campfe_core::richtext;
 use gtk::glib;
 
 pub fn page(
     window: &CampfeWindow,
     client: Client,
-    project: &Project,
-    tool: &DockTool,
+    title: &str,
+    chat_id: i64,
 ) -> adw::NavigationPage {
     let lines_box = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
@@ -37,11 +37,11 @@ pub fn page(
         ),
         Some("empty"),
     );
-    let page = shell(&tool.title, &stack);
-    page.set_tag(Some(&format!("tool-{}", tool.id)));
+    let page = shell(title, &stack);
+    page.set_tag(Some(&format!("chat-{chat_id}")));
 
-    let path = format!("/chats/{}/lines.json", tool.id);
-    let project_name = project.name.clone();
+    let path = format!("/chats/{chat_id}/lines.json");
+    let chat_title = title.to_string();
     rt::run(
         async move { client.get_page::<ChatLine>(&path).await },
         glib::clone!(
@@ -84,7 +84,7 @@ pub fn page(
                     });
                 }
                 Err(error) => {
-                    window.report(&format!("could not load the chat {project_name}"), &error);
+                    window.report(&format!("could not load the chat {chat_title}"), &error);
                     stack.set_visible_child_name("empty");
                 }
             }

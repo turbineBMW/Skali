@@ -27,11 +27,26 @@ const PAGE_NO_ACCOUNT: &str = "no-account";
 const PAGE_SIGNING_IN: &str = "signing-in";
 const PAGE_MAIN: &str = "main";
 
-/// One sidebar row: a project, and the account it belongs to.
+/// One sidebar row.
 #[derive(Clone, Debug)]
-pub struct SidebarEntry {
-    pub account_id: i64,
-    pub project: Project,
+pub enum SidebarEntry {
+    /// Hey!: the account's notifications, with its unread count.
+    Hey {
+        account_id: i64,
+        unread: usize,
+    },
+    Pings {
+        account_id: i64,
+    },
+    Assignments {
+        account_id: i64,
+    },
+    /// A section heading, not a row to open.
+    Header(String),
+    Project {
+        account_id: i64,
+        project: Project,
+    },
 }
 
 /// Everything the window mutates. Kept in one `RefCell` behind short
@@ -46,6 +61,8 @@ pub struct State {
     pub tokens: HashMap<i64, SharedToken>,
     /// The projects last listed, per account.
     pub projects: HashMap<i64, Vec<Project>>,
+    /// Hey!'s unread count per account, for the sidebar badge.
+    pub unread_counts: HashMap<i64, usize>,
     /// A sign-in waiting for the browser to come back.
     pub sign_in: Option<sign_in::PendingSignIn>,
 }
@@ -194,15 +211,7 @@ impl CampfeWindow {
             let entry = object
                 .downcast_ref::<glib::BoxedAnyObject>()
                 .expect("a boxed entry");
-            let entry = entry.borrow::<SidebarEntry>();
-            let row = adw::ActionRow::builder()
-                .title(glib::markup_escape_text(&entry.project.name))
-                .activatable(true)
-                .build();
-            if !entry.project.purpose.is_empty() && entry.project.purpose != "topic" {
-                row.set_subtitle(&glib::markup_escape_text(&entry.project.purpose));
-            }
-            row.upcast()
+            sidebar_row(&entry.borrow::<SidebarEntry>())
         });
         imp.sidebar_list.connect_row_activated(glib::clone!(
             #[weak(rename_to = window)]
@@ -220,7 +229,16 @@ impl CampfeWindow {
                     return;
                 };
                 let entry = entry.borrow::<SidebarEntry>().clone();
-                window.open_project(entry.account_id, entry.project);
+                match entry {
+                    SidebarEntry::Hey { account_id, .. } => window.open_hey(account_id),
+                    SidebarEntry::Pings { account_id } => window.open_pings(account_id),
+                    SidebarEntry::Assignments { account_id } => window.open_assignments(account_id),
+                    SidebarEntry::Header(_) => {}
+                    SidebarEntry::Project {
+                        account_id,
+                        project,
+                    } => window.open_project(account_id, project),
+                }
             }
         ));
         let _ = imp.sidebar_store.set(store);
@@ -314,13 +332,44 @@ impl CampfeWindow {
         }
         for id in account_ids {
             self.fetch_projects(id);
+            self.fetch_unread_count(id);
         }
+    }
+
+    /// Hey!'s unread count, for the sidebar badge.
+    pub fn fetch_unread_count(&self, account_id: i64) {
+        let Some(client) = self.state().clients.get(&account_id).cloned() else {
+            return;
+        };
+        rt::run(
+            async move {
+                client
+                    .get::<campfe_core::models::Readings>("/my/readings.json")
+                    .await
+            },
+            glib::clone!(
+                #[weak(rename_to = window)]
+                self,
+                move |result| match result {
+                    Ok(readings) => {
+                        window
+                            .state_mut()
+                            .unread_counts
+                            .insert(account_id, readings.unreads.len());
+                        window.rebuild_sidebar();
+                    }
+                    Err(error) =>
+                        tracing::warn!("could not count unreads of {account_id}: {error}"),
+                }
+            ),
+        );
     }
 
     fn refresh_projects(&self) {
         let ids: Vec<i64> = self.state().clients.keys().copied().collect();
         for id in ids {
             self.fetch_projects(id);
+            self.fetch_unread_count(id);
         }
     }
 
@@ -351,13 +400,27 @@ impl CampfeWindow {
         self.debug_open(account_id);
     }
 
-    /// A developer hook: `CAMPFE_DEBUG_OPEN=<project id>[:<tool id>]` opens
-    /// that page as soon as the project is listed, for a look without
-    /// clicking through. Acted on once.
+    /// A developer hook: `CAMPFE_DEBUG_OPEN=<project id>[:<tool id>]`, or
+    /// `hey`, `pings` or `assignments`, opens that page as soon as the
+    /// account's projects are listed, for a look without clicking through.
+    /// Acted on once.
     fn debug_open(&self, account_id: i64) {
         let Ok(target) = std::env::var("CAMPFE_DEBUG_OPEN") else {
             return;
         };
+        match target.as_str() {
+            "hey" | "pings" | "assignments" => {
+                // SAFETY: the main thread, with no other thread reading the environment.
+                unsafe { std::env::remove_var("CAMPFE_DEBUG_OPEN") };
+                match target.as_str() {
+                    "hey" => self.open_hey(account_id),
+                    "pings" => self.open_pings(account_id),
+                    _ => self.open_assignments(account_id),
+                }
+                return;
+            }
+            _ => {}
+        }
         let (project_id, tool_id) = match target.split_once(':') {
             Some((project, tool)) => (project.parse::<i64>().ok(), tool.parse::<i64>().ok()),
             None => (target.parse::<i64>().ok(), None),
@@ -392,22 +455,41 @@ impl CampfeWindow {
                 imp.sidebar_title.set_title(&first.name);
                 imp.sidebar_title.set_subtitle(&first.identity_email);
             }
-            accounts
-                .iter()
-                .flat_map(|account| {
-                    state
-                        .projects
-                        .get(&account.id)
-                        .into_iter()
-                        .flatten()
-                        .map(|project| SidebarEntry {
-                            account_id: account.id,
-                            project: project.clone(),
-                        })
-                })
-                .collect()
+            let several = accounts.len() > 1;
+            let mut entries = Vec::new();
+            for account in &accounts {
+                let account_id = account.id;
+                // With several accounts, each gets its own "me" section.
+                if several {
+                    entries.push(SidebarEntry::Header(account.name.clone()));
+                }
+                entries.push(SidebarEntry::Hey {
+                    account_id,
+                    unread: state.unread_counts.get(&account_id).copied().unwrap_or(0),
+                });
+                entries.push(SidebarEntry::Pings { account_id });
+                entries.push(SidebarEntry::Assignments { account_id });
+                entries.push(SidebarEntry::Header(if several {
+                    crate::i18n::format(
+                        &gettext("{account} projects"),
+                        &[("account", &account.name)],
+                    )
+                } else {
+                    gettext("Projects")
+                }));
+                entries.extend(state.projects.get(&account_id).into_iter().flatten().map(
+                    |project| SidebarEntry::Project {
+                        account_id,
+                        project: project.clone(),
+                    },
+                ));
+            }
+            entries
         };
-        let count = entries.len();
+        let count = entries
+            .iter()
+            .filter(|e| matches!(e, SidebarEntry::Project { .. }))
+            .count();
         let objects: Vec<glib::BoxedAnyObject> =
             entries.into_iter().map(glib::BoxedAnyObject::new).collect();
         store.splice(0, store.n_items(), &objects);
@@ -417,4 +499,48 @@ impl CampfeWindow {
                 &[("count", &count.to_string())],
             )));
     }
+}
+
+/// The widget for one sidebar entry.
+fn sidebar_row(entry: &SidebarEntry) -> gtk::Widget {
+    let (title, icon, badge) = match entry {
+        SidebarEntry::Header(text) => {
+            let label = gtk::Label::builder()
+                .label(text)
+                .xalign(0.0)
+                .css_classes(["heading", "dim-label", "caption-heading"])
+                .margin_top(14)
+                .margin_bottom(4)
+                .margin_start(12)
+                .build();
+            let row = gtk::ListBoxRow::builder()
+                .child(&label)
+                .activatable(false)
+                .selectable(false)
+                .build();
+            return row.upcast();
+        }
+        SidebarEntry::Hey { unread, .. } => (gettext("Hey!"), "mail-unread-symbolic", *unread),
+        SidebarEntry::Pings { .. } => (gettext("Pings"), "user-available-symbolic", 0),
+        SidebarEntry::Assignments { .. } => {
+            (gettext("My Assignments"), "object-select-symbolic", 0)
+        }
+        SidebarEntry::Project { project, .. } => (project.name.clone(), "", 0),
+    };
+    let row = adw::ActionRow::builder()
+        .title(glib::markup_escape_text(&title))
+        .activatable(true)
+        .build();
+    if !icon.is_empty() {
+        row.add_prefix(&gtk::Image::from_icon_name(icon));
+    }
+    if badge > 0 {
+        let label = gtk::Label::builder()
+            .label(badge.to_string())
+            .css_classes(["badge"])
+            .valign(gtk::Align::Center)
+            .build();
+        row.add_suffix(&label);
+    }
+    row.upcast()
 }
