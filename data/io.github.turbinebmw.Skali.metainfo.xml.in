@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.turbinebmw.Skali</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+
+  <name>Skali</name>
+  <summary>A native Basecamp client for GNOME</summary>
+  <description>
+    <p>
+      Skali is a GTK 4 / libadwaita client for Basecamp written in Rust: your
+      projects, Campfire chats, message boards, to-dos, card tables and
+      Docs &amp; Files in a fast desktop window that keeps working offline.
+    </p>
+    <p>Features include:</p>
+    <ul>
+      <li>Every Basecamp account you belong to, side by side</li>
+      <li>Campfire chat and Pings, updated live</li>
+      <li>Hey! notifications and My Assignments at a glance</li>
+      <li>Message boards, to-dos, card tables, schedules and files</li>
+      <li>Follows the system accent colour and dark style</li>
+    </ul>
+  </description>
+
+  <launchable type="desktop-id">io.github.turbinebmw.Skali.desktop</launchable>
+  <developer id="io.github.turbinebmw">
+    <name>Brandon Williams</name>
+  </developer>
+  <url type="homepage">https://github.com/turbinebmw/Skali</url>
+  <url type="vcs-browser">https://github.com/turbinebmw/Skali</url>
+  <url type="bugtracker">https://github.com/turbinebmw/Skali/issues</url>
+  <translation type="gettext">skali</translation>
+  <content_rating type="oars-1.1"/>
+
+  <releases>
+    <release version="0.1.0" date="2026-10-10">
+      <description>
+        <p>First scaffold: sign in through Launchpad and list projects.</p>
+      </description>
+    </release>
+  </releases>
+</component>

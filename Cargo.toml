@@ -1,13 +1,13 @@
 [workspace]
 resolver = "2"
-members = ["crates/campfe-core", "crates/campfe"]
+members = ["crates/skali-core", "crates/skali"]
 
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.88"
 license = "GPL-3.0-or-later"
-repository = "https://github.com/turbinebmw/Campfe"
+repository = "https://github.com/turbinebmw/Skali"
 
 [workspace.dependencies]
 tracing = "0.1"

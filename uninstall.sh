@@ -5,7 +5,7 @@
 #   PREFIX=/usr sh uninstall.sh      -> a system-wide install (run with sudo)
 set -eu
 PREFIX="${PREFIX:-$HOME/.local}"
-APP_ID=io.github.turbinebmw.Campfe
+APP_ID=io.github.turbinebmw.Skali
 BIN="$PREFIX/bin"
 SHARE="$PREFIX/share"
 
@@ -24,8 +24,8 @@ if $purge && $is_root; then
   exit 2
 fi
 
-# A running Campfe (it may be in the background) quits the way Quit does.
-if ! $is_root && pgrep -x campfe >/dev/null 2>&1; then
+# A running Skali (it may be in the background) quits the way Quit does.
+if ! $is_root && pgrep -x skali >/dev/null 2>&1; then
   gapplication action "$APP_ID" quit 2>/dev/null || true
 fi
 
@@ -37,23 +37,23 @@ if [ -e "$UNITDIR/$APP_ID.service" ]; then
   if ! $is_root; then systemctl --user daemon-reload >/dev/null 2>&1 || true; fi
 fi
 
-# The D-Bus service goes first, so nothing can start Campfe again mid-way.
+# The D-Bus service goes first, so nothing can start Skali again mid-way.
 rm -f "$SHARE/dbus-1/services/$APP_ID.service"
-rm -f "$BIN/campfe"
+rm -f "$BIN/skali"
 rm -f "$SHARE/applications/$APP_ID.desktop"
 rm -f "$SHARE/metainfo/$APP_ID.metainfo.xml"
 for size in 48 64 128 256 512; do
   rm -f "$SHARE/icons/hicolor/${size}x${size}/apps/$APP_ID.png"
 done
 rm -f "$SHARE/icons/hicolor/symbolic/apps/$APP_ID-symbolic.svg"
-for mo in "$SHARE"/locale/*/LC_MESSAGES/campfe.mo; do
+for mo in "$SHARE"/locale/*/LC_MESSAGES/skali.mo; do
   if [ -e "$mo" ]; then rm -f "$mo"; fi
 done
 schemas="$SHARE/glib-2.0/schemas"
 if [ -e "$schemas/$APP_ID.gschema.xml" ]; then
   rm -f "$schemas/$APP_ID.gschema.xml"
   # With no schema left to compile, glib-compile-schemas keeps the old
-  # compiled file, which still lists Campfe's.
+  # compiled file, which still lists Skali's.
   if ls "$schemas"/*.gschema.xml >/dev/null 2>&1; then
     glib-compile-schemas "$schemas" >/dev/null 2>&1 || true
   else
@@ -69,16 +69,16 @@ if ! $is_root; then
 fi
 
 if $purge; then
-  rm -rf "${XDG_DATA_HOME:-$HOME/.local/share}/campfe"
-  rm -rf "${XDG_CACHE_HOME:-$HOME/.cache}/campfe"
+  rm -rf "${XDG_DATA_HOME:-$HOME/.local/share}/skali"
+  rm -rf "${XDG_CACHE_HOME:-$HOME/.cache}/skali"
   if command -v dconf >/dev/null 2>&1; then
-    dconf reset -f /io/github/turbinebmw/Campfe/ 2>/dev/null || true
+    dconf reset -f /io/github/turbinebmw/Skali/ 2>/dev/null || true
   fi
   # The sign-in tokens in the keyring.
   if command -v secret-tool >/dev/null 2>&1; then
     secret-tool clear xdg:schema "$APP_ID.Token" 2>/dev/null || true
   fi
-  echo "Removed Campfe's cache, settings and sign-in tokens."
+  echo "Removed Skali's cache, settings and sign-in tokens."
 fi
 
-echo "Uninstalled Campfe from $PREFIX."
+echo "Uninstalled Skali from $PREFIX."

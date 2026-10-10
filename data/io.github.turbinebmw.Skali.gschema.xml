@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist gettext-domain="skali">
+	<schema id="io.github.turbinebmw.Skali" path="/io/github/turbinebmw/Skali/">
+		<key name="notifications" type="b">
+			<default>true</default>
+			<summary>Notify about new activity</summary>
+			<description>Show a desktop notification for new chat lines, pings and mentions.</description>
+		</key>
+		<key name="follow-omarchy-theme" type="b">
+			<default>true</default>
+			<summary>Follow the Omarchy theme</summary>
+			<description>On Omarchy, take the current theme's colours and dark or light style. Elsewhere this does nothing.</description>
+		</key>
+		<key name="window-width" type="i">
+			<range min="360" max="10000"/>
+			<default>1400</default>
+			<summary>Window width</summary>
+		</key>
+		<key name="window-height" type="i">
+			<range min="400" max="10000"/>
+			<default>860</default>
+			<summary>Window height</summary>
+		</key>
+		<key name="window-maximized" type="b">
+			<default>false</default>
+			<summary>Window maximized</summary>
+		</key>
+		<key name="sidebar-width" type="i">
+			<range min="220" max="600"/>
+			<default>280</default>
+			<summary>Sidebar width</summary>
+		</key>
+	</schema>
+</schemalist>

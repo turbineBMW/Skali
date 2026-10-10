@@ -1,10 +1,10 @@
 #!/usr/bin/env sh
-# Install the Campfe for the current user (no Flatpak).
+# Install the Skali for the current user (no Flatpak).
 #   sh install.sh            -> ~/.local (binary in ~/.local/bin)
 #   PREFIX=/usr sh install.sh -> system-wide (run with sudo)
 set -eu
 PREFIX="${PREFIX:-$HOME/.local}"
-APP_ID=io.github.turbinebmw.Campfe
+APP_ID=io.github.turbinebmw.Skali
 BIN="$PREFIX/bin"
 SHARE="$PREFIX/share"
 
@@ -42,7 +42,7 @@ else
 fi
 
 if [ -n "$missing" ]; then
-  echo "Campfe can't be built; missing:$what" >&2
+  echo "Skali can't be built; missing:$what" >&2
   echo "Install them with:" >&2
   case $distro in
     arch) echo "  sudo pacman -S --needed$missing" >&2 ;;
@@ -54,11 +54,11 @@ if [ -n "$missing" ]; then
 fi
 
 cargo build --release
-install -Dm755 target/release/campfe "$BIN/campfe"
+install -Dm755 target/release/skali "$BIN/skali"
 install -Dm644 data/$APP_ID.gschema.xml "$SHARE/glib-2.0/schemas/$APP_ID.gschema.xml"
 glib-compile-schemas "$SHARE/glib-2.0/schemas"
-sed "s|^Exec=campfe|Exec=$BIN/campfe|" data/$APP_ID.desktop.in > "$SHARE/applications/$APP_ID.desktop.tmp" 2>/dev/null \
-  || { install -d "$SHARE/applications"; sed "s|^Exec=campfe|Exec=$BIN/campfe|" data/$APP_ID.desktop.in > "$SHARE/applications/$APP_ID.desktop.tmp"; }
+sed "s|^Exec=skali|Exec=$BIN/skali|" data/$APP_ID.desktop.in > "$SHARE/applications/$APP_ID.desktop.tmp" 2>/dev/null \
+  || { install -d "$SHARE/applications"; sed "s|^Exec=skali|Exec=$BIN/skali|" data/$APP_ID.desktop.in > "$SHARE/applications/$APP_ID.desktop.tmp"; }
 mv "$SHARE/applications/$APP_ID.desktop.tmp" "$SHARE/applications/$APP_ID.desktop"
 install -d "$SHARE/dbus-1/services"
 sed "s|@bindir@|$BIN|" data/$APP_ID.service.in > "$SHARE/dbus-1/services/$APP_ID.service"
@@ -86,8 +86,8 @@ if command -v msgfmt >/dev/null 2>&1; then
     [ -e "$po" ] || continue
     lang=$(basename "$po" .po)
     install -d "$SHARE/locale/$lang/LC_MESSAGES"
-    msgfmt -o "$SHARE/locale/$lang/LC_MESSAGES/campfe.mo" "$po"
+    msgfmt -o "$SHARE/locale/$lang/LC_MESSAGES/skali.mo" "$po"
   done
 fi
 
-echo "Installed to $PREFIX. Run: $BIN/campfe"
+echo "Installed to $PREFIX. Run: $BIN/skali"

@@ -1,0 +1,12 @@
+[Desktop Entry]
+Name=Skali
+GenericName=Basecamp Client
+Comment=Projects, chat, to-dos and messages from Basecamp
+Exec=skali
+Icon=io.github.turbinebmw.Skali
+Terminal=false
+Type=Application
+Categories=Network;Office;ProjectManagement;Chat;
+Keywords=GTK;Basecamp;37signals;Projects;Chat;Campfire;Todo;
+StartupNotify=true
+DBusActivatable=true

@@ -1,4 +1,4 @@
-# Campfe — a native GTK4/libadwaita Basecamp client
+# Skali — a native GTK4/libadwaita Basecamp client
 
 Plan written 2026-10-10 from a survey of Rustle, Bubo and Vmux, the Basecamp 5
 API docs (`basecamp/bc-api`), the official CLI (`basecamp/basecamp-cli`, Go),
@@ -22,7 +22,7 @@ you), plus My Tasks / My Events / My Bookmarks / My Activity / My Notes.
 
 - **API**: `https://3.basecampapi.com/{account_id}/...`. Basecamp 5 flat routes
   are canonical (`/todos/123.json`, `/recordings/123/comments.json`); legacy
-  `/buckets/{id}/...` still works. Mandatory `User-Agent: Campfe (url or email)`.
+  `/buckets/{id}/...` still works. Mandatory `User-Agent: Skali (url or email)`.
   Geared pagination via `Link: rel="next"`. ETag / `If-None-Match` → 304.
   Rate limit ~50 req / 10 s per IP, 429 + `Retry-After`.
 - **Auth**: two issuers.
@@ -69,9 +69,9 @@ you), plus My Tasks / My Events / My Bookmarks / My Activity / My Notes.
 
 | Topic | Decision | Why |
 |---|---|---|
-| Layout | Cargo workspace: `crates/campfe-core` (no GTK) + `crates/campfe` (GTK) | Rustle pattern; core is unit-testable |
+| Layout | Cargo workspace: `crates/skali-core` (no GTK) + `crates/skali` (GTK) | Rustle pattern; core is unit-testable |
 | Edition | 2024, `rust-version = "1.88"` | Bubo/Vmux already on 2024; SDK MSRV 1.88 |
-| App id | `io.github.turbinebmw.Campfe`, resource path `/io/github/turbinebmw/Campfe` | Rustle's (newest) convention |
+| App id | `io.github.turbinebmw.Skali`, resource path `/io/github/turbinebmw/Skali` | Rustle's (newest) convention |
 | UI | Blueprint `.blp` composite templates, `gio::ListStore` + `ListView`, `Adw.NavigationSplitView` | Rustle pattern, fits list/detail |
 | Async | Global tokio runtime (`rt.rs` from Bubo) + `reqwest`; results back via `async_channel` → `glib::spawn_future_local` | Natural for HTTP, pagination, websockets |
 | HTTP/API | Own thin client over `reqwest` with hand-written serde models for the subset we show. Vendor model structs from `basecamp-sdk` where convenient. Re-evaluate adopting the SDK wholesale after the auth spike. | We need ETag cache, `authorization.json`, Action Cable, and control over churn |
@@ -80,14 +80,14 @@ you), plus My Tasks / My Events / My Bookmarks / My Activity / My Notes.
 | Settings | GSettings schema compiled into OUT_DIR for `cargo run` (Rustle `settings.rs`) | Proven |
 | Cache | `rusqlite` (bundled), main-thread connection, append-only migrations, FTS5 for local search | Rustle `db.rs` |
 | Rich text | WebKitGTK 6 view for messages/documents/comments (Rustle reader); Pango markup conversion for chat lines and excerpts | Rendering fidelity vs. list performance |
-| Logging | `tracing` → stderr (`CAMPFE_LOG`) + always-on file log in `~/.cache/campfe/` (Bubo `init_logging`) | Field debugging |
+| Logging | `tracing` → stderr (`SKALI_LOG`) + always-on file log in `~/.cache/skali/` (Bubo `init_logging`) | Field debugging |
 | Packaging | Cargo only, `install.sh`/`uninstall.sh`/`justfile` copied from Rustle; `.desktop`, metainfo, gschema, D-Bus + systemd user unit for `--hidden` background mode | House style |
 | Theming | `accent.rs` + `omarchy.rs` ported from Rustle/Bubo, `follow-omarchy-theme` default on | House style |
 
 ## 4. Architecture
 
 ```
-crates/campfe-core
+crates/skali-core
   api/        client.rs (reqwest, User-Agent, auth header, 429/5xx backoff,
               Link pagination, ETag store), endpoints/*.rs, models/*.rs,
               richtext.rs (HTML → Pango, bc-attachment expansion)
@@ -104,7 +104,7 @@ crates/campfe-core
               Network, Decode } + is_transient(); UI-facing Failure enum
   sync.rs     orchestrates initial load / refresh / event-driven refetch
 
-crates/campfe
+crates/skali
   main.rs, config.rs, settings.rs, rt.rs, workers.rs (channel helpers), i18n.rs
   application.rs      adw::Application, single instance, --hidden, actions
   window/             mod.rs (State in RefCell), sidebar.rs, home.rs,
@@ -186,7 +186,7 @@ the recording `parent` chain.
 ### Phase 6 — Polish and ship
 - Omarchy theme following, accent colours, keyboard shortcuts
   (Shift+J jump like the web app), i18n `pot`, screenshots, README,
-  AUR `campfe-git` PKGBUILD.
+  AUR `skali-git` PKGBUILD.
 
 ## 6. Status (2026-10-10)
 
@@ -199,7 +199,7 @@ Done:
 - Phase 3: Hey! (mark read on open, mark all read), Pings, My Assignments,
   Search (`/search.json`: as you type, by kind, best match or newest;
   Ctrl+F), desktop notifications. Hey! and My Assignments rows open chats, messages,
-  cards, docs, uploads and to-do lists in Campfe (`links::AppLink`), other
+  cards, docs, uploads and to-do lists in Skali (`links::AppLink`), other
   links in the browser; so do Basecamp links in rich text and chat lines. A
   link to a comment scrolls to it.
 - Phase 4: chat lines, comments, new messages, file attachments on messages
@@ -214,7 +214,7 @@ Open, in rough order:
   Timeline.
 - Writes: boosts, move/complete cards, subscribe/bookmark, to-do notes.
 - PAT paste fallback for sign-in.
-- Keyboard shortcuts, screenshots, README, AUR `campfe-git` PKGBUILD.
+- Keyboard shortcuts, screenshots, README, AUR `skali-git` PKGBUILD.
 
 ## 7. Development aids
 
@@ -227,12 +227,17 @@ Open, in rough order:
 
 ## 8. Decided (were open questions)
 
-1. Launchpad integration: registered as "Campfe" with redirect
+1. Launchpad integration: registered (as "Campfe"; rename it to "Skali" at
+   https://launchpad.37signals.com/integrations, same id/secret) with redirect
    `http://127.0.0.1:8976/callback`; id/secret embedded in `config.rs`.
 2. SDK vs own client: own thin client.
 3. Commits: Conventional Commits; AI co-author trailers allowed.
 4. MVP: chat, message boards, to-dos, Hey! first; card tables and docs next
    (both since done).
+5. Name (2026-10-10): Skali (Old Norse *skáli*, a hall or hut), not Campfe,
+   which read too close to Basecamp's own Campfire. App id, data dir, keyring
+   schema and env vars moved with it; the first run moves the old data dir,
+   cache and keyring item over.
 
 ## 9. Sources
 

@@ -1,12 +1,12 @@
-# Campfe — task runner. `just` with no args lists recipes.
+# Skali — task runner. `just` with no args lists recipes.
 
 # Build the app (debug). Blueprints, resources and the schema compile via build.rs.
 build:
     cargo build
 
-# Build and run from the checkout. CAMPFE_LOG=debug for verbose logging.
+# Build and run from the checkout. SKALI_LOG=debug for verbose logging.
 run *ARGS:
-    cargo run -p campfe -- {{ARGS}}
+    cargo run -p skali -- {{ARGS}}
 
 # clippy (warnings are errors) + rustfmt check + unit tests.
 check:
@@ -25,7 +25,7 @@ install:
 uninstall *args:
     sh uninstall.sh {{args}}
 
-# Regenerate the translation template, po/campfe.pot, from the sources.
+# Regenerate the translation template, po/skali.pot, from the sources.
 pot:
     sh po/update-pot.sh
 

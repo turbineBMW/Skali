@@ -208,53 +208,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "campfe"
-version = "0.1.0"
-dependencies = [
- "async-channel",
- "campfe-core",
- "chrono",
- "gettext-rs",
- "gio",
- "glib",
- "glib-build-tools",
- "gtk4",
- "libadwaita",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "webkit6",
-]
-
-[[package]]
-name = "campfe-core"
-version = "0.1.0"
-dependencies = [
- "async-channel",
- "chrono",
- "futures-util",
- "glib",
- "oo7",
- "percent-encoding",
- "rand 0.9.5",
- "regex",
- "reqwest",
- "rusqlite",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror",
- "tokio",
- "tokio-tungstenite",
- "tracing",
- "url",
- "uuid",
-]
-
-[[package]]
 name = "cbc"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2376,6 +2329,53 @@ name = "simdutf8"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
+
+[[package]]
+name = "skali"
+version = "0.1.0"
+dependencies = [
+ "async-channel",
+ "chrono",
+ "gettext-rs",
+ "gio",
+ "glib",
+ "glib-build-tools",
+ "gtk4",
+ "libadwaita",
+ "serde",
+ "serde_json",
+ "skali-core",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "webkit6",
+]
+
+[[package]]
+name = "skali-core"
+version = "0.1.0"
+dependencies = [
+ "async-channel",
+ "chrono",
+ "futures-util",
+ "glib",
+ "oo7",
+ "percent-encoding",
+ "rand 0.9.5",
+ "regex",
+ "reqwest",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tokio-tungstenite",
+ "tracing",
+ "url",
+ "uuid",
+]
 
 [[package]]
 name = "slab"

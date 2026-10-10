@@ -1,0 +1,17 @@
+[Unit]
+Description=Skali, following Basecamp in the background
+Documentation=https://github.com/turbinebmw/Skali
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=dbus
+BusName=io.github.turbinebmw.Skali
+# --hidden builds the window, so syncing and notifications run, without
+# showing it; opening Skali from the launcher then presents it.
+ExecStart=@bindir@/skali --hidden
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical-session.target

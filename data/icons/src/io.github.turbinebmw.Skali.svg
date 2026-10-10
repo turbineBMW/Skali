@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+ <!-- tile -->
+ <rect x="4" y="5" width="56" height="56" rx="8" style="opacity:0.2"/>
+ <rect x="4" y="4" width="56" height="56" rx="8" style="fill:#3a8c7e"/>
+ <path d="M 12,4 C 7.568,4 4,7.568 4,12 V 13 C 4,8.568 7.568,5 12,5 H 52 C 56.432,5 60,8.568 60,13 V 12 C 60,7.568 56.432,4 52,4 Z" style="opacity:0.2;fill:#ffffff"/>
+ <!-- hall shadow -->
+ <path d="M 10,38 32,20 54,38 H 48 V 51 H 16 V 38 Z" style="opacity:0.2"/>
+ <!-- walls -->
+ <rect x="16" y="35" width="32" height="15" style="fill:#c8743a"/>
+ <rect x="16" y="35" width="32" height="3" style="opacity:0.2"/>
+ <!-- plank lines -->
+ <path d="M 22,38 V 50 M 42,38 V 50" style="fill:none;stroke:#a35a2a;stroke-width:1.5"/>
+ <!-- roof -->
+ <path d="M 9,37 32,18 55,37 Z" style="fill:#6b3a22;stroke:#6b3a22;stroke-width:2;stroke-linejoin:round"/>
+ <path d="M 32,22 15,36 H 49 Z" style="fill:#8a4a2a"/>
+ <!-- crossed gable boards -->
+ <path d="M 26.5,13 35,22.5 M 37.5,13 29,22.5" style="fill:none;stroke:#6b3a22;stroke-width:3;stroke-linecap:round"/>
+ <!-- door -->
+ <path d="M 28,50 V 44 A 4,4 0 0 1 36,44 V 50 Z" style="fill:#4a2616"/>
+ <circle cx="34" cy="46" r="0.8" style="fill:#e0a060"/>
+</svg>

@@ -1,3 +1,0 @@
-[D-BUS Service]
-Name=io.github.turbinebmw.Campfe
-Exec=@bindir@/campfe --gapplication-service
