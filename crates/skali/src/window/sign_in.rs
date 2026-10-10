@@ -1,6 +1,8 @@
 //! Signing in: the browser goes to Launchpad, comes back to our loopback
 //! port with a code, and the tokens land in the keyring with the accounts
-//! they open in the cache. Also the token refresh, on the same identity.
+//! they open in the cache. Or a pasted personal access token, which
+//! Basecamp vouches for, takes the same way in. Also the token refresh, on
+//! the same identity.
 
 use super::{PAGE_MAIN, PAGE_NO_ACCOUNT, PAGE_SIGNING_IN, SkaliWindow};
 use crate::config;
@@ -105,7 +107,7 @@ impl SkaliWindow {
                 if matches!(&error, ApiError::Auth(reason) if reason == &gettext("cancelled")) {
                     tracing::info!("sign-in cancelled");
                 } else {
-                    self.report("sign-in failed", &error);
+                    self.report("could not sign in", &error);
                 }
                 let page = if self.state().accounts.is_empty() {
                     PAGE_NO_ACCOUNT
@@ -172,6 +174,38 @@ impl SkaliWindow {
         self.imp().main_stack.set_visible_child_name(PAGE_MAIN);
         self.toast(&gettext("Signed in to Basecamp."));
         self.tokens_loaded(identity_id, signed_in.tokens);
+    }
+
+    /// Sign in with a pasted personal access token: Basecamp says whose it
+    /// is and which accounts it opens, then it's kept like any sign-in.
+    pub fn sign_in_with_token(&self, token: String) {
+        self.imp()
+            .main_stack
+            .set_visible_child_name(PAGE_SIGNING_IN);
+        rt::run(
+            async move {
+                let http = skali_core::api::http_client()?;
+                let authorization = auth::token_authorization(&http, &token).await?;
+                let tokens = TokenSet::personal(token, authorization.expires_at);
+                Ok(SignedIn {
+                    tokens,
+                    authorization,
+                })
+            },
+            glib::clone!(
+                #[weak(rename_to = window)]
+                self,
+                move |result: Result<SignedIn>| {
+                    let result = result.map_err(|error| match error {
+                        ApiError::Unauthorized => {
+                            ApiError::Auth(gettext("Basecamp didn't accept that token"))
+                        }
+                        other => other,
+                    });
+                    window.sign_in_finished(result)
+                }
+            ),
+        );
     }
 
     /// A fresh access token for an identity, written into the shared token

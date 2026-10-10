@@ -18,6 +18,9 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
 pub const LAUNCHPAD: &str = "https://launchpad.37signals.com";
+/// Basecamp's own authorization document: who a personal access token
+/// (from `https://app.basecamp.com/my/access_tokens`) belongs to.
+pub const BASECAMP_AUTHORIZATION: &str = "https://3.basecampapi.com/authorization.json";
 
 /// The integration registered at launchpad.37signals.com/integrations.
 #[derive(Clone)]
@@ -82,11 +85,24 @@ impl std::fmt::Debug for TokenSet {
 }
 
 impl TokenSet {
+    /// A pasted personal access token: no refresh token, so it lasts until
+    /// its expiry (if Basecamp reports one) and is then pasted again.
+    pub fn personal(access_token: String, expires_at: Option<DateTime<Utc>>) -> Self {
+        Self {
+            access_token,
+            refresh_token: None,
+            expires_at,
+        }
+    }
+
     /// Refresh ahead of the expiry rather than at it, so a request started
-    /// just before never carries a token that dies in flight.
+    /// just before never carries a token that dies in flight. A token with
+    /// nothing to refresh with never asks.
     pub fn needs_refresh(&self, now: DateTime<Utc>) -> bool {
-        self.expires_at
-            .is_some_and(|expires| expires - Duration::minutes(5) <= now)
+        self.refresh_token.is_some()
+            && self
+                .expires_at
+                .is_some_and(|expires| expires - Duration::minutes(5) <= now)
     }
 }
 
@@ -182,11 +198,30 @@ async fn token_reply(
 /// Whose token this is and the accounts it opens. The first call after
 /// signing in; the `href` of a `bc3` account is the API base URL.
 pub async fn authorization(http: &reqwest::Client, access_token: &str) -> Result<Authorization> {
-    let response = http
-        .get(format!("{LAUNCHPAD}/authorization.json"))
-        .bearer_auth(access_token)
-        .send()
-        .await?;
+    authorization_at(
+        http,
+        &format!("{LAUNCHPAD}/authorization.json"),
+        access_token,
+    )
+    .await
+}
+
+/// `authorization` for a personal access token, which Basecamp itself
+/// vouches for rather than Launchpad. The same document, with the token's
+/// expiry when it has one.
+pub async fn token_authorization(
+    http: &reqwest::Client,
+    access_token: &str,
+) -> Result<Authorization> {
+    authorization_at(http, BASECAMP_AUTHORIZATION, access_token).await
+}
+
+async fn authorization_at(
+    http: &reqwest::Client,
+    url: &str,
+    access_token: &str,
+) -> Result<Authorization> {
+    let response = http.get(url).bearer_auth(access_token).send().await?;
     if response.status() == reqwest::StatusCode::UNAUTHORIZED {
         return Err(ApiError::Unauthorized);
     }
@@ -351,5 +386,14 @@ mod tests {
         };
         assert!(!fresh.needs_refresh(now));
         assert!(!format!("{fresh:?}").contains("SECRET-TOKEN"));
+    }
+
+    #[test]
+    fn a_personal_token_never_asks_for_a_refresh() {
+        let now = Utc::now();
+        let expiring = TokenSet::personal("t".into(), Some(now + Duration::minutes(1)));
+        assert!(expiring.refresh_token.is_none());
+        assert!(!expiring.needs_refresh(now));
+        assert!(!TokenSet::personal("t".into(), None).needs_refresh(now));
     }
 }

@@ -227,6 +227,9 @@ impl SkaliWindow {
                 }
             })
             .build();
+        let sign_in_token = gio::ActionEntry::builder("sign-in-token")
+            .activate(|window: &Self, _, _| crate::dialogs::token_sign_in::present(window))
+            .build();
         let jump = gio::ActionEntry::builder("jump")
             .activate(|window: &Self, _, _| crate::dialogs::jump::present(window))
             .build();
@@ -255,7 +258,7 @@ impl SkaliWindow {
                 window.open_entry(entry);
             })
             .build();
-        self.add_action_entries([sign_in, refresh, search, jump, go]);
+        self.add_action_entries([sign_in, sign_in_token, refresh, search, jump, go]);
         self.imp().sign_in_button.connect_clicked(glib::clone!(
             #[weak(rename_to = window)]
             self,
