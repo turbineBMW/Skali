@@ -26,7 +26,7 @@ always has debug. To exercise the app without touching real data: `XDG_DATA_HOME
 
 Dev hooks: `skali api [GET|POST|PUT|DELETE] <path> [json]` makes one raw call with the stored
 sign-in and prints the body (writes obey the guard below). `SKALI_DEBUG_OPEN=<project>[:<tool>[:first]]`
-or `=hey|pings|assignments|search[:<words>]`, or `=<app_url>` (routed as a Hey! row is) opens
+or `=hey|pings|assignments|bookmarks|search[:<words>]`, or `=<app_url>` (routed as a Hey! row is) opens
 that page at launch. The sandbox project and its tool ids are in `CLAUDE.local.md`
 (untracked). For a screenshot on Hyprland:
 `hyprctl clients -j` for the window geometry, `grim -g`; `wtype` types into the focused widget.
