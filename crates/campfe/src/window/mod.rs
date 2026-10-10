@@ -541,6 +541,12 @@ impl CampfeWindow {
                             ))
                             .await
                             .map(|page| page.items.into_iter().next().map(DebugFirst::Todolist)),
+                        "vault" => client
+                            .get_page::<campfe_core::models::Upload>(&format!(
+                                "/vaults/{tool_id}/uploads.json"
+                            ))
+                            .await
+                            .map(|page| page.items.into_iter().next().map(DebugFirst::Upload)),
                         _ => Ok(None),
                     }
                 }
@@ -551,6 +557,7 @@ impl CampfeWindow {
                 move |result| match result {
                     Ok(Some(DebugFirst::Message(message))) => window.open_message(client, message),
                     Ok(Some(DebugFirst::Todolist(list))) => window.open_todolist(client, list),
+                    Ok(Some(DebugFirst::Upload(upload))) => window.open_upload(client, upload),
                     Ok(None) => {}
                     Err(error) => tracing::warn!("debug open: {error}"),
                 }
@@ -619,6 +626,7 @@ impl CampfeWindow {
 enum DebugFirst {
     Message(campfe_core::models::Message),
     Todolist(campfe_core::models::Todolist),
+    Upload(campfe_core::models::Upload),
 }
 
 /// The widget for one sidebar entry.

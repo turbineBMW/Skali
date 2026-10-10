@@ -20,8 +20,8 @@ const POLL_EVERY: Duration = Duration::from_secs(60);
 /// Hey! is re-counted at most this often, however busy the feed.
 const UNREAD_RECOUNT_EVERY: Duration = Duration::from_secs(20);
 
-/// A message page open now, for live comments.
-pub type LiveMessage = std::rc::Weak<pages::messages::MessagePage>;
+/// A recording page open now, for live comments.
+pub type LiveMessage = std::rc::Weak<pages::recording::RecordingPage>;
 
 impl CampfeWindow {
     /// A chat page is open: lines for it go straight in.
@@ -31,10 +31,10 @@ impl CampfeWindow {
             .insert(view.chat_id(), Rc::downgrade(view));
     }
 
-    pub fn watch_message(&self, page: &Rc<pages::messages::MessagePage>) {
+    pub fn watch_recording(&self, page: &Rc<pages::recording::RecordingPage>) {
         self.state_mut()
             .live_messages
-            .insert(page.message_id(), Rc::downgrade(page));
+            .insert(page.recording_id(), Rc::downgrade(page));
     }
 
     /// Start the live stream and the poll timer for an account, once.

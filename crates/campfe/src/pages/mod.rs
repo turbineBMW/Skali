@@ -3,11 +3,14 @@
 //! and fills itself in when the answer comes; the window only pushes it.
 
 pub mod assignments;
+pub mod cards;
 pub mod chat;
+pub mod docs;
 pub mod hey;
 pub mod messages;
 pub mod pings;
 pub mod project;
+pub mod recording;
 pub mod todos;
 
 use crate::i18n::gettext;

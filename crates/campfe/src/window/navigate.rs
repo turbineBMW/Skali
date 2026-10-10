@@ -8,7 +8,7 @@ use crate::pages;
 use adw::prelude::*;
 use adw::subclass::prelude::*;
 use campfe_core::api::Client;
-use campfe_core::models::{Campfire, DockTool, Message, Project, Todolist};
+use campfe_core::models::{Campfire, Card, DockTool, Document, Message, Project, Todolist, Upload};
 
 impl CampfeWindow {
     pub fn client_for(&self, account_id: i64) -> Option<Client> {
@@ -91,6 +91,8 @@ impl CampfeWindow {
             "chat" => pages::chat::page(self, client, &tool.title, tool.id),
             "message_board" => pages::messages::board_page(self, client, project, tool),
             "todoset" => pages::todos::set_page(self, client, project, tool),
+            "kanban_board" => pages::cards::board_page(self, client, project, tool),
+            "vault" => pages::docs::vault_page(self, client, &tool.title, tool.id),
             _ => {
                 self.toast(&crate::i18n::format(
                     &gettext("{tool} isn't supported yet."),
@@ -106,6 +108,30 @@ impl CampfeWindow {
         self.imp()
             .content_nav
             .push(&pages::messages::message_page(self, client, message));
+    }
+
+    pub fn open_card(&self, client: Client, card: Card) {
+        self.imp()
+            .content_nav
+            .push(&pages::cards::card_page(self, client, card));
+    }
+
+    pub fn open_vault(&self, client: Client, title: &str, vault_id: i64) {
+        self.imp()
+            .content_nav
+            .push(&pages::docs::vault_page(self, client, title, vault_id));
+    }
+
+    pub fn open_document(&self, client: Client, document: Document) {
+        self.imp()
+            .content_nav
+            .push(&pages::docs::document_page(self, client, document));
+    }
+
+    pub fn open_upload(&self, client: Client, upload: Upload) {
+        self.imp()
+            .content_nav
+            .push(&pages::docs::upload_page(self, client, upload));
     }
 
     pub fn open_todolist(&self, client: Client, list: Todolist) {

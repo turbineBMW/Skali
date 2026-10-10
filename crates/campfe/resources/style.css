@@ -14,3 +14,21 @@
   font-size: 0.8em;
   font-weight: bold;
 }
+
+/* Card table columns: a card of their own, the colour as a dot. */
+.card-column {
+  padding: 10px;
+  border-radius: 12px;
+  background-color: var(--card-bg-color);
+}
+.column-dot { border-radius: 999px; background-color: var(--dim-label-color); }
+.column-red { background-color: var(--red-3); }
+.column-orange { background-color: var(--orange-3); }
+.column-yellow { background-color: var(--yellow-3); }
+.column-green { background-color: var(--green-3); }
+.column-blue { background-color: var(--blue-3); }
+.column-aqua { background-color: var(--blue-2); }
+.column-purple { background-color: var(--purple-3); }
+.column-pink { background-color: var(--purple-2); }
+.column-brown { background-color: var(--brown-3); }
+.column-gray, .column-grey { background-color: var(--dim-label-color); }

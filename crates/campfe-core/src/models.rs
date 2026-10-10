@@ -596,3 +596,150 @@ mod recording_tests {
         assert_eq!(todo.recording.creator, Person::default());
     }
 }
+
+// ---------------------------------------------------------------------------
+// Card tables and Docs & Files.
+
+/// A card table: its columns ("lists"), each with its cards.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Default)]
+pub struct CardTable {
+    #[serde(flatten)]
+    pub recording: Recording,
+    #[serde(default)]
+    pub lists: Vec<CardColumn>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Default)]
+pub struct CardColumn {
+    #[serde(flatten)]
+    pub recording: Recording,
+    #[serde(default, deserialize_with = "null_default")]
+    pub description: String,
+    #[serde(default)]
+    pub color: Option<String>,
+    #[serde(default)]
+    pub cards_count: i64,
+    #[serde(default, deserialize_with = "null_default")]
+    pub cards_url: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Default)]
+pub struct Card {
+    #[serde(flatten)]
+    pub recording: Recording,
+    /// Rich text (HTML).
+    #[serde(default, deserialize_with = "null_default")]
+    pub content: String,
+    #[serde(default)]
+    pub content_attachments: Vec<Attachment>,
+    #[serde(default)]
+    pub completed: bool,
+    #[serde(default)]
+    pub due_on: Option<chrono::NaiveDate>,
+    #[serde(default)]
+    pub assignees: Vec<Person>,
+    #[serde(default)]
+    pub steps: Vec<CardStep>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Default)]
+pub struct CardStep {
+    #[serde(flatten)]
+    pub recording: Recording,
+    #[serde(default)]
+    pub completed: bool,
+    #[serde(default)]
+    pub due_on: Option<chrono::NaiveDate>,
+    #[serde(default)]
+    pub assignees: Vec<Person>,
+}
+
+/// A vault: Docs & Files itself, or a folder in it.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Default)]
+pub struct Vault {
+    #[serde(flatten)]
+    pub recording: Recording,
+    #[serde(default)]
+    pub documents_count: i64,
+    #[serde(default)]
+    pub uploads_count: i64,
+    #[serde(default)]
+    pub vaults_count: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Default)]
+pub struct Document {
+    #[serde(flatten)]
+    pub recording: Recording,
+    /// Rich text (HTML).
+    #[serde(default, deserialize_with = "null_default")]
+    pub content: String,
+    #[serde(default)]
+    pub content_attachments: Vec<Attachment>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Default)]
+pub struct Upload {
+    #[serde(flatten)]
+    pub recording: Recording,
+    #[serde(default, deserialize_with = "null_default")]
+    pub description: String,
+    #[serde(default, deserialize_with = "null_default")]
+    pub content_type: String,
+    #[serde(default)]
+    pub byte_size: i64,
+    #[serde(default, deserialize_with = "null_default")]
+    pub filename: String,
+    #[serde(default, deserialize_with = "null_default")]
+    pub download_url: String,
+    #[serde(default)]
+    pub width: Option<i64>,
+    #[serde(default)]
+    pub height: Option<i64>,
+}
+
+impl Upload {
+    pub fn is_image(&self) -> bool {
+        self.content_type.starts_with("image/")
+    }
+
+    /// "4.9 kB", "2.3 MB".
+    pub fn size_label(&self) -> String {
+        let bytes = self.byte_size as f64;
+        if bytes < 1000.0 {
+            format!("{} B", self.byte_size)
+        } else if bytes < 1_000_000.0 {
+            format!("{:.1} kB", bytes / 1000.0)
+        } else if bytes < 1_000_000_000.0 {
+            format!("{:.1} MB", bytes / 1_000_000.0)
+        } else {
+            format!("{:.1} GB", bytes / 1_000_000_000.0)
+        }
+    }
+}
+
+#[cfg(test)]
+mod vault_tests {
+    use super::*;
+
+    #[test]
+    fn a_card_table_carries_its_columns() {
+        let json = r#"{"id": 1, "title": "Card Table", "lists": [
+            {"id": 2, "title": "Triage", "color": null, "cards_count": 3, "cards_url": "u"},
+            {"id": 3, "title": "Done", "color": "green", "cards_count": 0}]}"#;
+        let table: CardTable = serde_json::from_str(json).unwrap();
+        assert_eq!(table.lists.len(), 2);
+        assert_eq!(table.lists[1].color.as_deref(), Some("green"));
+    }
+
+    #[test]
+    fn upload_sizes_read_well() {
+        let upload = |byte_size| Upload {
+            byte_size,
+            ..Default::default()
+        };
+        assert_eq!(upload(512).size_label(), "512 B");
+        assert_eq!(upload(4887).size_label(), "4.9 kB");
+        assert_eq!(upload(2_300_000).size_label(), "2.3 MB");
+    }
+}
