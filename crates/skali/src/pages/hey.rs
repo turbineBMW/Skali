@@ -241,7 +241,7 @@ impl HeyPage {
         row.add_suffix(&gtk::Image::from_icon_name(if in_app {
             "go-next-symbolic"
         } else {
-            "external-link-symbolic"
+            "adw-external-link-symbolic"
         }));
         let url = reading.app_url.clone();
         let sgid = reading.readable_sgid.clone();

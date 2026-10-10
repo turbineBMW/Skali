@@ -17,9 +17,9 @@ fn describe(tool: &DockTool) -> (&'static str, String) {
         "todoset" => ("object-select-symbolic", gettext("To-dos")),
         "schedule" => ("x-office-calendar-symbolic", gettext("Schedule")),
         "vault" => ("folder-documents-symbolic", gettext("Docs & Files")),
-        "kanban_board" => ("view-columns-symbolic", gettext("Card Table")),
+        "kanban_board" => ("view-dual-symbolic", gettext("Card Table")),
         "questionnaire" => ("dialog-question-symbolic", gettext("Automatic Check-ins")),
-        "inbox" => ("mail-inbox-symbolic", gettext("Email Forwards")),
+        "inbox" => ("mail-unread-symbolic", gettext("Email Forwards")),
         _ => ("application-x-addon-symbolic", tool.name.clone()),
     }
 }

@@ -302,7 +302,7 @@ fn result_row(window: &SkaliWindow, result: &SearchResult) -> adw::ActionRow {
     row.add_suffix(&gtk::Image::from_icon_name(if in_app {
         "go-next-symbolic"
     } else {
-        "external-link-symbolic"
+        "adw-external-link-symbolic"
     }));
     let url = recording.app_url.clone();
     row.connect_activated(glib::clone!(
