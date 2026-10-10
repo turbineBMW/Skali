@@ -525,14 +525,25 @@ impl CampfeWindow {
     }
 
     /// A developer hook: `CAMPFE_DEBUG_OPEN=<project id>[:<tool id>[:first]]`,
-    /// or `hey`, `pings` or `assignments`, opens that page as soon as the
-    /// account's projects are listed, for a look without clicking through;
-    /// `:first` goes on into the tool's first item. Acted on once.
+    /// or `hey`, `pings` or `assignments`, or a web link (`https://...`) the
+    /// way Hey! opens one, opens that page as soon as the account's projects
+    /// are listed, for a look without clicking through; `:first` goes on
+    /// into the tool's first item. Acted on once.
     fn debug_open(&self, account_id: i64) {
         let Ok(target) = std::env::var("CAMPFE_DEBUG_OPEN") else {
             return;
         };
         match target.as_str() {
+            url if url.starts_with("https://") => {
+                // SAFETY: the main thread, with no other thread reading the environment.
+                unsafe { std::env::remove_var("CAMPFE_DEBUG_OPEN") };
+                if let Some(client) = self.client_for(account_id)
+                    && !self.open_app_url(client, url)
+                {
+                    tracing::warn!("debug open: Campfe has no page for {url}");
+                }
+                return;
+            }
             "hey" | "pings" | "assignments" => {
                 // SAFETY: the main thread, with no other thread reading the environment.
                 unsafe { std::env::remove_var("CAMPFE_DEBUG_OPEN") };

@@ -9,6 +9,7 @@ pub mod darkmode;
 pub mod db;
 pub mod error;
 pub mod feed;
+pub mod links;
 pub mod models;
 pub mod omarchy;
 pub mod richtext;

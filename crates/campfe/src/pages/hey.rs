@@ -1,7 +1,7 @@
 //! Hey!: what's new for the signed-in person, unread first, then what's
 //! been read. Opening an unread item marks it read; the header has a button
-//! for marking all of them. Each row opens the item in Basecamp's web app
-//! until Campfe can show every kind itself.
+//! for marking all of them. A row opens its item on Campfe's own page when
+//! there is one, in Basecamp's web app otherwise.
 
 use super::{avatar, shell_with_header, time_label};
 use crate::i18n::gettext;
@@ -9,6 +9,7 @@ use crate::rt;
 use crate::window::CampfeWindow;
 use adw::prelude::*;
 use campfe_core::api::Client;
+use campfe_core::links::AppLink;
 use campfe_core::models::{Reading, Readings};
 use campfe_core::richtext;
 use gtk::glib;
@@ -248,7 +249,12 @@ impl HeyPage {
             row.add_suffix(&badge);
             badge
         });
-        row.add_suffix(&gtk::Image::from_icon_name("external-link-symbolic"));
+        let in_app = AppLink::parse(&reading.app_url).is_some();
+        row.add_suffix(&gtk::Image::from_icon_name(if in_app {
+            "go-next-symbolic"
+        } else {
+            "external-link-symbolic"
+        }));
         let url = reading.app_url.clone();
         let sgid = reading.readable_sgid.clone();
         row.connect_activated(glib::clone!(
@@ -257,16 +263,9 @@ impl HeyPage {
             move |row| {
                 if !url.is_empty()
                     && let Some(window) = hey.window.upgrade()
+                    && !window.open_app_url(hey.client.clone(), &url)
                 {
-                    gtk::UriLauncher::new(&url).launch(
-                        Some(&window),
-                        gtk::gio::Cancellable::NONE,
-                        |result| {
-                            if let Err(error) = result {
-                                tracing::warn!("could not open {error}");
-                            }
-                        },
-                    );
+                    window.open_in_browser(&url);
                 }
                 if !hey.unread.borrow().contains(&sgid) {
                     return;

@@ -1,5 +1,6 @@
 //! My Assignments: the to-dos and cards assigned to the signed-in person,
-//! Up Next first, then the rest grouped by project.
+//! Up Next first, then the rest grouped by project. A row opens the card,
+//! or the to-do's list.
 
 use super::shell;
 use crate::i18n::gettext;
@@ -25,6 +26,7 @@ pub fn page(window: &CampfeWindow, client: Client) -> adw::NavigationPage {
     );
     let page = shell(&gettext("My Assignments"), &stack);
 
+    let client_for_rows = client.clone();
     rt::run(
         async move { client.get::<Assignments>("/my/assignments.json").await },
         glib::clone!(
@@ -34,6 +36,8 @@ pub fn page(window: &CampfeWindow, client: Client) -> adw::NavigationPage {
             stack,
             #[weak]
             column,
+            #[strong(rename_to = client)]
+            client_for_rows,
             move |result| match result {
                 Ok(assignments) => {
                     if assignments.priorities.is_empty() && assignments.non_priorities.is_empty() {
@@ -41,7 +45,12 @@ pub fn page(window: &CampfeWindow, client: Client) -> adw::NavigationPage {
                         return;
                     }
                     if !assignments.priorities.is_empty() {
-                        column.append(&section(&gettext("Up Next"), &assignments.priorities));
+                        column.append(&section(
+                            &window,
+                            &client,
+                            &gettext("Up Next"),
+                            &assignments.priorities,
+                        ));
                     }
                     let mut by_project: BTreeMap<String, Vec<&Assignment>> = BTreeMap::new();
                     for assignment in &assignments.non_priorities {
@@ -52,7 +61,7 @@ pub fn page(window: &CampfeWindow, client: Client) -> adw::NavigationPage {
                     }
                     for (project, items) in by_project {
                         let items: Vec<Assignment> = items.into_iter().cloned().collect();
-                        column.append(&section(&project, &items));
+                        column.append(&section(&window, &client, &project, &items));
                     }
                     stack.set_visible_child_name("list");
                 }
@@ -66,7 +75,12 @@ pub fn page(window: &CampfeWindow, client: Client) -> adw::NavigationPage {
     page
 }
 
-fn section(title: &str, assignments: &[Assignment]) -> gtk::Box {
+fn section(
+    window: &CampfeWindow,
+    client: &Client,
+    title: &str,
+    assignments: &[Assignment],
+) -> gtk::Box {
     let column = gtk::Box::new(gtk::Orientation::Vertical, 6);
     let heading = gtk::Label::builder()
         .label(title)
@@ -79,16 +93,28 @@ fn section(title: &str, assignments: &[Assignment]) -> gtk::Box {
         .css_classes(["boxed-list"])
         .build();
     for assignment in assignments {
-        list.append(&row(assignment));
+        list.append(&row(window, client, assignment));
     }
     column.append(&list);
     column
 }
 
-fn row(assignment: &Assignment) -> adw::ActionRow {
+fn row(window: &CampfeWindow, client: &Client, assignment: &Assignment) -> adw::ActionRow {
     let row = adw::ActionRow::builder()
         .title(glib::markup_escape_text(&assignment.content))
+        .activatable(!assignment.app_url.is_empty())
         .build();
+    let url = assignment.app_url.clone();
+    let client = client.clone();
+    row.connect_activated(glib::clone!(
+        #[weak]
+        window,
+        move |_| {
+            if !window.open_app_url(client.clone(), &url) {
+                window.open_in_browser(&url);
+            }
+        }
+    ));
     let check = gtk::CheckButton::builder()
         .active(assignment.completed)
         .sensitive(false)
@@ -124,6 +150,9 @@ fn row(assignment: &Assignment) -> adw::ActionRow {
     }
     if !details.is_empty() {
         row.set_subtitle(&glib::markup_escape_text(&details.join(" · ")));
+    }
+    if !assignment.app_url.is_empty() {
+        row.add_suffix(&gtk::Image::from_icon_name("go-next-symbolic"));
     }
     row
 }

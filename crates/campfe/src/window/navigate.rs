@@ -8,7 +8,13 @@ use crate::pages;
 use adw::prelude::*;
 use adw::subclass::prelude::*;
 use campfe_core::api::Client;
-use campfe_core::models::{Campfire, Card, DockTool, Document, Message, Project, Todolist, Upload};
+use campfe_core::error::{ApiError, Result};
+use campfe_core::links::AppLink;
+use campfe_core::models::{
+    Campfire, Card, DockTool, Document, Message, Project, Todo, Todolist, Upload,
+};
+use gtk::glib;
+use std::future::Future;
 
 impl CampfeWindow {
     pub fn client_for(&self, account_id: i64) -> Option<Client> {
@@ -154,5 +160,102 @@ impl CampfeWindow {
         self.imp()
             .content_nav
             .push(&pages::todos::list_page(self, client, list));
+    }
+
+    /// Open a Basecamp web link (an `app_url`) on a page of Campfe's own
+    /// when there is one: the recording is fetched, then shown. `false`
+    /// for a link Campfe has no page for, which the caller opens in the
+    /// browser instead.
+    pub fn open_app_url(&self, client: Client, url: &str) -> bool {
+        let Some(link) = AppLink::parse(url) else {
+            return false;
+        };
+        let get = client.clone();
+        let url = url.to_string();
+        match link {
+            AppLink::Chat(id) => self.open_fetched(
+                client,
+                url,
+                async move { get.get::<Campfire>(&format!("/chats/{id}.json")).await },
+                |window, client, chat| window.open_campfire(client, &chat),
+            ),
+            AppLink::Message(id) => self.open_fetched(
+                client,
+                url,
+                async move { get.get::<Message>(&format!("/messages/{id}.json")).await },
+                Self::open_message,
+            ),
+            AppLink::Card(id) => self.open_fetched(
+                client,
+                url,
+                async move {
+                    get.get::<Card>(&format!("/card_tables/cards/{id}.json"))
+                        .await
+                },
+                Self::open_card,
+            ),
+            AppLink::Document(id) => self.open_fetched(
+                client,
+                url,
+                async move { get.get::<Document>(&format!("/documents/{id}.json")).await },
+                Self::open_document,
+            ),
+            AppLink::Upload(id) => self.open_fetched(
+                client,
+                url,
+                async move { get.get::<Upload>(&format!("/uploads/{id}.json")).await },
+                Self::open_upload,
+            ),
+            // A to-do has no page of its own: open the list it's on.
+            AppLink::Todo(id) => self.open_fetched(
+                client,
+                url,
+                async move {
+                    let todo = get.get::<Todo>(&format!("/todos/{id}.json")).await?;
+                    let list = todo.recording.parent.ok_or_else(|| {
+                        ApiError::Io(std::io::Error::other("the to-do is on no list"))
+                    })?;
+                    get.get::<Todolist>(&format!("/todolists/{}.json", list.id))
+                        .await
+                },
+                Self::open_todolist,
+            ),
+            AppLink::Todolist(id) => self.open_fetched(
+                client,
+                url,
+                async move { get.get::<Todolist>(&format!("/todolists/{id}.json")).await },
+                Self::open_todolist,
+            ),
+        }
+        true
+    }
+
+    fn open_fetched<T: Send + 'static>(
+        &self,
+        client: Client,
+        url: String,
+        fetch: impl Future<Output = Result<T>> + Send + 'static,
+        open: impl FnOnce(&Self, Client, T) + 'static,
+    ) {
+        crate::rt::run(
+            fetch,
+            glib::clone!(
+                #[weak(rename_to = window)]
+                self,
+                move |result| match result {
+                    Ok(item) => open(&window, client, item),
+                    Err(error) => window.report(&format!("could not open {url}"), &error),
+                }
+            ),
+        );
+    }
+
+    /// A link in the browser, for what Campfe doesn't show itself.
+    pub fn open_in_browser(&self, url: &str) {
+        gtk::UriLauncher::new(url).launch(Some(self), gtk::gio::Cancellable::NONE, |result| {
+            if let Err(error) = result {
+                tracing::warn!("could not open a link: {error}");
+            }
+        });
     }
 }

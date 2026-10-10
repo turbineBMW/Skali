@@ -195,7 +195,9 @@ Done:
 - Phase 2: projects, Campfire (scroll-back), message boards, to-dos, card
   tables, Docs & Files, avatars, inline images, project cache.
 - Phase 3: Hey! (mark read on open, mark all read), Pings, My Assignments,
-  desktop notifications.
+  desktop notifications. Hey! and My Assignments rows open chats, messages,
+  cards, docs, uploads and to-do lists in Campfe (`links::AppLink`), other
+  links in the browser.
 - Phase 4: chat lines, comments, new messages, file attachments on messages
   and comments; complete/reopen, add, assign and reschedule to-dos.
 - Phase 5: live feed (Action Cable + poll) for open chats and recordings;
@@ -203,8 +205,8 @@ Done:
 - Phase 6: Omarchy theme following, accent, `po/` template, Preferences.
 
 Open, in rough order:
-- Hey! rows open in the browser; open messages, cards, docs and chats in
-  Campfe instead.
+- Links inside rich text to Basecamp items still go to the browser; route
+  them through `open_app_url` too. Opening a comment doesn't scroll to it.
 - Schedule page (the dock shows the tool; nothing opens it).
 - ETags: the `kv` table exists, requests don't send `If-None-Match` yet.
 - Search (`/search.json`, FTS5 over the cache), My Bookmarks, My Notes,
