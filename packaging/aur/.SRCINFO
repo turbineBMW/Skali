@@ -1,0 +1,27 @@
+pkgbase = skali-git
+	pkgdesc = Native GTK 4 / libadwaita Basecamp client
+	pkgver = 0.1.0.r0.g0000000
+	pkgrel = 1
+	url = https://github.com/turbineBMW/Skali
+	arch = x86_64
+	arch = aarch64
+	license = GPL-3.0-or-later
+	makedepends = cargo
+	makedepends = git
+	makedepends = blueprint-compiler
+	makedepends = gettext
+	depends = gtk4>=4.18
+	depends = libadwaita>=1.8
+	depends = webkitgtk-6.0>=2.48
+	depends = pango
+	depends = glib2
+	depends = gcc-libs
+	depends = glibc
+	optdepends = gnome-keyring: or another Secret Service provider, to keep the sign-in
+	provides = skali
+	conflicts = skali
+	options = !lto
+	source = Skali::git+https://github.com/turbineBMW/Skali.git
+	sha256sums = SKIP
+
+pkgname = skali-git

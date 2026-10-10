@@ -1,0 +1,56 @@
+# Maintainer: Brandon Williams <turbine.bmw at gmail dot com>
+pkgname=skali-git
+pkgver=0.1.0.r0.g0000000
+pkgrel=1
+pkgdesc='Native GTK 4 / libadwaita Basecamp client'
+arch=('x86_64' 'aarch64')
+url='https://github.com/turbineBMW/Skali'
+license=('GPL-3.0-or-later')
+depends=('gtk4>=4.18' 'libadwaita>=1.8' 'webkitgtk-6.0>=2.48' 'pango' 'glib2' 'gcc-libs' 'glibc')
+makedepends=('cargo' 'git' 'blueprint-compiler' 'gettext')
+optdepends=('gnome-keyring: or another Secret Service provider, to keep the sign-in')
+provides=('skali')
+conflicts=('skali')
+# makepkg's LTO turns the C parts (aws-lc, sqlite) into GCC LTO objects that
+# the Rust link can't read; Cargo's own thin LTO still applies.
+options=('!lto')
+source=('Skali::git+https://github.com/turbineBMW/Skali.git')
+sha256sums=('SKIP')
+
+pkgver() {
+  cd Skali
+  printf '%s.r%s.g%s' \
+    "$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n1)" \
+    "$(git rev-list --count HEAD)" \
+    "$(git rev-parse --short=7 HEAD)"
+}
+
+prepare() {
+  cd Skali
+  export RUSTUP_TOOLCHAIN=stable
+  cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+# aws-lc (rustls' crypto) builds its CPU-jitter entropy source at -O0 and
+# refuses to compile once makepkg's CFLAGS add -O2 after that; it's only a
+# supplementary source (the kernel's getrandom is the main one), so leave it out.
+export AWS_LC_SYS_NO_JITTER_ENTROPY=1
+
+build() {
+  cd Skali
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR=target
+  cargo build --frozen --release
+}
+
+check() {
+  cd Skali
+  export RUSTUP_TOOLCHAIN=stable
+  cargo test --frozen --workspace
+}
+
+package() {
+  cd Skali
+  DESTDIR="$pkgdir" PREFIX=/usr sh install.sh
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
