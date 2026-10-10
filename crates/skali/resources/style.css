@@ -32,6 +32,10 @@
 .column-pink { background-color: var(--purple-2); }
 .column-brown { background-color: var(--brown-3); }
 .column-gray, .column-grey { background-color: var(--dim-label-color); }
+/* Dragging a card: the column under the pointer lights up, the card left
+   behind fades until it lands. */
+.card-column:drop(active) { box-shadow: inset 0 0 0 2px var(--accent-bg-color); }
+row.dragged { opacity: 0.4; }
 
 /* A boost under a chat line; yours is a button that takes it back. */
 .boost-chip {
