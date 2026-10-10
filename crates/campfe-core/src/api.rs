@@ -233,6 +233,14 @@ impl Client {
         Ok(())
     }
 
+    /// A PUT with a body whose reply is empty (marking Hey! items read).
+    pub async fn put_no_reply<B: Serialize + ?Sized>(&self, path: &str, body: &B) -> Result<()> {
+        self.check_write()?;
+        self.send(|| self.http.put(self.url(path)).json(body))
+            .await?;
+        Ok(())
+    }
+
     pub async fn delete(&self, path: &str) -> Result<()> {
         self.check_write()?;
         self.send(|| self.http.delete(self.url(path))).await?;

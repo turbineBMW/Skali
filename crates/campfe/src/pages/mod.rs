@@ -20,13 +20,23 @@ use chrono::{DateTime, Datelike, Local, Utc};
 
 /// A header bar, a page title and a content area with the usual chrome.
 pub fn shell(title: &str, content: &impl IsA<gtk::Widget>) -> adw::NavigationPage {
+    shell_with_header(title, content).0
+}
+
+/// `shell`, and its header bar for the page's own buttons.
+pub fn shell_with_header(
+    title: &str,
+    content: &impl IsA<gtk::Widget>,
+) -> (adw::NavigationPage, adw::HeaderBar) {
+    let header = adw::HeaderBar::new();
     let toolbar = adw::ToolbarView::new();
-    toolbar.add_top_bar(&adw::HeaderBar::new());
+    toolbar.add_top_bar(&header);
     toolbar.set_content(Some(content));
-    adw::NavigationPage::builder()
+    let page = adw::NavigationPage::builder()
         .title(title)
         .child(&toolbar)
-        .build()
+        .build();
+    (page, header)
 }
 
 /// A scrolling column of content, centred and clamped to a readable width.

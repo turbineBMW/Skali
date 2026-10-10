@@ -46,7 +46,7 @@ impl CampfeWindow {
             return;
         };
         self.show_root_page(&format!("hey-{account_id}"), || {
-            pages::hey::page(self, client)
+            pages::hey::page(self, account_id, client)
         });
     }
 
