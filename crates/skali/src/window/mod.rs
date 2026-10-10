@@ -219,20 +219,39 @@ impl SkaliWindow {
         // Search the first account, as the sidebar lists them.
         let search = gio::ActionEntry::builder("search")
             .activate(|window: &Self, _, _| {
-                let first = {
-                    let state = window.state();
-                    state
-                        .accounts
-                        .values()
-                        .min_by(|a, b| a.name.cmp(&b.name))
-                        .map(|a| a.id)
-                };
-                if let Some(account_id) = first {
+                if let Some(account_id) = window.first_account_id() {
                     window.open_search(account_id, "");
                 }
             })
             .build();
-        self.add_action_entries([sign_in, refresh, search]);
+        let jump = gio::ActionEntry::builder("jump")
+            .activate(|window: &Self, _, _| crate::dialogs::jump::present(window))
+            .build();
+        // The first account's own pages, by name: `win.go::hey`...
+        let go = gio::ActionEntry::builder("go")
+            .parameter_type(Some(glib::VariantTy::STRING))
+            .activate(|window: &Self, _, parameter| {
+                let (Some(account_id), Some(page)) = (
+                    window.first_account_id(),
+                    parameter.and_then(|p| p.get::<String>()),
+                ) else {
+                    return;
+                };
+                let entry = match page.as_str() {
+                    "hey" => SidebarEntry::Hey {
+                        account_id,
+                        unread: 0,
+                    },
+                    "pings" => SidebarEntry::Pings { account_id },
+                    "assignments" => SidebarEntry::Assignments { account_id },
+                    "bookmarks" => SidebarEntry::Bookmarks { account_id },
+                    "timeline" => SidebarEntry::Timeline { account_id },
+                    _ => return,
+                };
+                window.open_entry(entry);
+            })
+            .build();
+        self.add_action_entries([sign_in, refresh, search, jump, go]);
         self.imp().sign_in_button.connect_clicked(glib::clone!(
             #[weak(rename_to = window)]
             self,
@@ -267,22 +286,91 @@ impl SkaliWindow {
                     return;
                 };
                 let entry = entry.borrow::<SidebarEntry>().clone();
-                match entry {
-                    SidebarEntry::Hey { account_id, .. } => window.open_hey(account_id),
-                    SidebarEntry::Pings { account_id } => window.open_pings(account_id),
-                    SidebarEntry::Assignments { account_id } => window.open_assignments(account_id),
-                    SidebarEntry::Bookmarks { account_id } => window.open_bookmarks(account_id),
-                    SidebarEntry::Timeline { account_id } => window.open_timeline(account_id),
-                    SidebarEntry::Search { account_id } => window.open_search(account_id, ""),
-                    SidebarEntry::Header(_) => {}
-                    SidebarEntry::Project {
-                        account_id,
-                        project,
-                    } => window.open_project(account_id, project),
-                }
+                window.open_entry(entry);
             }
         ));
         let _ = imp.sidebar_store.set(store);
+    }
+
+    /// Open what a sidebar row (or the jump menu) points at.
+    pub fn open_entry(&self, entry: SidebarEntry) {
+        match entry {
+            SidebarEntry::Hey { account_id, .. } => self.open_hey(account_id),
+            SidebarEntry::Pings { account_id } => self.open_pings(account_id),
+            SidebarEntry::Assignments { account_id } => self.open_assignments(account_id),
+            SidebarEntry::Bookmarks { account_id } => self.open_bookmarks(account_id),
+            SidebarEntry::Timeline { account_id } => self.open_timeline(account_id),
+            SidebarEntry::Search { account_id } => self.open_search(account_id, ""),
+            SidebarEntry::Header(_) => {}
+            SidebarEntry::Project {
+                account_id,
+                project,
+            } => self.open_project(account_id, project),
+        }
+    }
+
+    /// The account listed first (they're sorted by name), for shortcuts
+    /// that don't say which.
+    fn first_account_id(&self) -> Option<i64> {
+        self.state()
+            .accounts
+            .values()
+            .min_by(|a, b| a.name.cmp(&b.name))
+            .map(|a| a.id)
+    }
+
+    /// Every sidebar entry, in order, headings included.
+    pub fn sidebar_entries(&self) -> Vec<SidebarEntry> {
+        let state = self.state();
+        let mut accounts: Vec<&Account> = state.accounts.values().collect();
+        accounts.sort_by(|a, b| a.name.cmp(&b.name));
+        let several = accounts.len() > 1;
+        let mut entries = Vec::new();
+        for account in &accounts {
+            let account_id = account.id;
+            // With several accounts, each gets its own "me" section.
+            if several {
+                entries.push(SidebarEntry::Header(account.name.clone()));
+            }
+            entries.push(SidebarEntry::Hey {
+                account_id,
+                unread: state.unread_counts.get(&account_id).copied().unwrap_or(0),
+            });
+            entries.push(SidebarEntry::Pings { account_id });
+            entries.push(SidebarEntry::Assignments { account_id });
+            entries.push(SidebarEntry::Bookmarks { account_id });
+            entries.push(SidebarEntry::Timeline { account_id });
+            entries.push(SidebarEntry::Search { account_id });
+            entries.push(SidebarEntry::Header(if several {
+                crate::i18n::format(
+                    &gettext("{account} projects"),
+                    &[("account", &account.name)],
+                )
+            } else {
+                gettext("Projects")
+            }));
+            entries.extend(
+                state
+                    .projects
+                    .get(&account_id)
+                    .into_iter()
+                    .flatten()
+                    .map(|project| SidebarEntry::Project {
+                        account_id,
+                        project: project.clone(),
+                    }),
+            );
+        }
+        entries
+    }
+
+    /// The account name an entry belongs to, when there are several to
+    /// tell apart; for the jump menu.
+    pub fn account_label(&self, account_id: i64) -> Option<String> {
+        let state = self.state();
+        (state.accounts.len() > 1)
+            .then(|| state.accounts.get(&account_id).map(|a| a.name.clone()))
+            .flatten()
     }
 
     pub fn toast(&self, text: &str) {
@@ -703,48 +791,19 @@ impl SkaliWindow {
     fn rebuild_sidebar(&self) {
         let imp = self.imp();
         let store = imp.sidebar_store.get().expect("set in setup_sidebar");
-        let entries: Vec<SidebarEntry> = {
+        let first = {
             let state = self.state();
-            let mut accounts: Vec<&Account> = state.accounts.values().collect();
-            accounts.sort_by(|a, b| a.name.cmp(&b.name));
-            if let Some(first) = accounts.first() {
-                imp.sidebar_title.set_title(&first.name);
-                imp.sidebar_title.set_subtitle(&first.identity_email);
-            }
-            let several = accounts.len() > 1;
-            let mut entries = Vec::new();
-            for account in &accounts {
-                let account_id = account.id;
-                // With several accounts, each gets its own "me" section.
-                if several {
-                    entries.push(SidebarEntry::Header(account.name.clone()));
-                }
-                entries.push(SidebarEntry::Hey {
-                    account_id,
-                    unread: state.unread_counts.get(&account_id).copied().unwrap_or(0),
-                });
-                entries.push(SidebarEntry::Pings { account_id });
-                entries.push(SidebarEntry::Assignments { account_id });
-                entries.push(SidebarEntry::Bookmarks { account_id });
-                entries.push(SidebarEntry::Timeline { account_id });
-                entries.push(SidebarEntry::Search { account_id });
-                entries.push(SidebarEntry::Header(if several {
-                    crate::i18n::format(
-                        &gettext("{account} projects"),
-                        &[("account", &account.name)],
-                    )
-                } else {
-                    gettext("Projects")
-                }));
-                entries.extend(state.projects.get(&account_id).into_iter().flatten().map(
-                    |project| SidebarEntry::Project {
-                        account_id,
-                        project: project.clone(),
-                    },
-                ));
-            }
-            entries
+            state
+                .accounts
+                .values()
+                .min_by(|a, b| a.name.cmp(&b.name))
+                .map(|a| (a.name.clone(), a.identity_email.clone()))
         };
+        if let Some((name, email)) = first {
+            imp.sidebar_title.set_title(&name);
+            imp.sidebar_title.set_subtitle(&email);
+        }
+        let entries = self.sidebar_entries();
         let count = entries
             .iter()
             .filter(|e| matches!(e, SidebarEntry::Project { .. }))
@@ -767,26 +826,11 @@ enum DebugFirst {
     Upload(skali_core::models::Upload),
 }
 
-/// The widget for one sidebar entry.
-fn sidebar_row(entry: &SidebarEntry) -> gtk::Widget {
-    let (title, icon, badge) = match entry {
-        SidebarEntry::Header(text) => {
-            let label = gtk::Label::builder()
-                .label(text)
-                .xalign(0.0)
-                .css_classes(["heading", "dim-label", "caption-heading"])
-                .margin_top(14)
-                .margin_bottom(4)
-                .margin_start(12)
-                .build();
-            let row = gtk::ListBoxRow::builder()
-                .child(&label)
-                .activatable(false)
-                .selectable(false)
-                .focusable(false)
-                .build();
-            return row.upcast();
-        }
+/// What a row says: its title, icon (maybe none) and badge count. None
+/// for a heading.
+pub fn entry_label(entry: &SidebarEntry) -> Option<(String, &'static str, usize)> {
+    Some(match entry {
+        SidebarEntry::Header(_) => return None,
         SidebarEntry::Hey { unread, .. } => (gettext("Hey!"), "mail-unread-symbolic", *unread),
         SidebarEntry::Pings { .. } => (gettext("Pings"), "user-available-symbolic", 0),
         SidebarEntry::Assignments { .. } => {
@@ -796,7 +840,29 @@ fn sidebar_row(entry: &SidebarEntry) -> gtk::Widget {
         SidebarEntry::Timeline { .. } => (gettext("Timeline"), "document-open-recent-symbolic", 0),
         SidebarEntry::Search { .. } => (gettext("Search"), "system-search-symbolic", 0),
         SidebarEntry::Project { project, .. } => (project.name.clone(), "", 0),
-    };
+    })
+}
+
+/// The widget for one sidebar entry.
+pub fn sidebar_row(entry: &SidebarEntry) -> gtk::Widget {
+    if let SidebarEntry::Header(text) = entry {
+        let label = gtk::Label::builder()
+            .label(text)
+            .xalign(0.0)
+            .css_classes(["heading", "dim-label", "caption-heading"])
+            .margin_top(14)
+            .margin_bottom(4)
+            .margin_start(12)
+            .build();
+        let row = gtk::ListBoxRow::builder()
+            .child(&label)
+            .activatable(false)
+            .selectable(false)
+            .focusable(false)
+            .build();
+        return row.upcast();
+    }
+    let (title, icon, badge) = entry_label(entry).unwrap_or_default();
     let row = adw::ActionRow::builder()
         .title(glib::markup_escape_text(&title))
         .activatable(true)

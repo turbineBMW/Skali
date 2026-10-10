@@ -214,13 +214,15 @@ Done:
 - ETags: every JSON GET is conditional on the ETag it last saw (per account,
   in memory, LRU-bounded); a 304 reuses the kept body and `Link`/count. The
   quiet feed poll gets 304s.
-- Phase 6: Omarchy theme following, accent, `po/` template, Preferences.
+- Phase 6: Omarchy theme following, accent, `po/` template, Preferences;
+  keyboard shortcuts (Ctrl+J jump menu over every sidebar destination,
+  Alt+1-5 for the "me" pages, Ctrl+? lists them all).
 
 Open, in rough order:
 - Local search (FTS5 over the cache, for offline), My Notes.
 - Writes: to-do notes; dragging cards on the board.
 - PAT paste fallback for sign-in.
-- Keyboard shortcuts, screenshots, README, AUR `skali-git` PKGBUILD.
+- Screenshots, README, AUR `skali-git` PKGBUILD.
 
 ## 7. Development aids
 

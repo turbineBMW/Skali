@@ -189,14 +189,29 @@ impl SkaliApplication {
                 }
             })
             .build();
-        self.add_action_entries([about, quit, preferences, sign_in, open_hey]);
+        let shortcuts = gio::ActionEntry::builder("shortcuts")
+            .activate(|app: &Self, _, _| {
+                if let Some(window) = app.main_window() {
+                    crate::dialogs::shortcuts::dialog().present(Some(&window));
+                }
+            })
+            .build();
+        self.add_action_entries([about, quit, preferences, sign_in, open_hey, shortcuts]);
 
+        // Listed for people in dialogs/shortcuts.rs: keep the two together.
         for (name, accels) in [
             ("app.quit", &["<control>q"][..]),
             ("app.preferences", &["<control>comma"]),
+            ("app.shortcuts", &["<control>question"]),
             ("win.sign-in", &["<control>l"]),
             ("win.refresh", &["F5"]),
             ("win.search", &["<control>f"]),
+            ("win.jump", &["<control>j", "<control>k"]),
+            ("win.go::hey", &["<alt>1"]),
+            ("win.go::pings", &["<alt>2"]),
+            ("win.go::assignments", &["<alt>3"]),
+            ("win.go::bookmarks", &["<alt>4"]),
+            ("win.go::timeline", &["<alt>5"]),
         ] {
             self.set_accels_for_action(name, accels);
         }
