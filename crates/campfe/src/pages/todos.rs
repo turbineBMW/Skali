@@ -123,6 +123,7 @@ pub fn list_page(window: &CampfeWindow, client: Client, list: Todolist) -> adw::
 
     let path = format!("/todolists/{}/todos.json", list.recording.id);
     let completed_path = format!("/todolists/{}/todos.json?completed=true", list.recording.id);
+    let client_for_rows = client.clone();
     rt::run(
         async move {
             let open = client.get_all::<Todo>(&path).await?;
@@ -132,6 +133,8 @@ pub fn list_page(window: &CampfeWindow, client: Client, list: Todolist) -> adw::
         glib::clone!(
             #[weak]
             window,
+            #[strong(rename_to = client)]
+            client_for_rows,
             #[weak]
             column,
             #[weak]
@@ -154,11 +157,11 @@ pub fn list_page(window: &CampfeWindow, client: Client, list: Todolist) -> adw::
                             );
                         }
                         for todo in &open_todos {
-                            open.append(&todo_row(todo));
+                            open.append(&todo_row(&window, &client, todo));
                         }
                         if !completed.is_empty() {
                             for todo in &completed {
-                                done.append(&todo_row(todo));
+                                done.append(&todo_row(&window, &client, todo));
                             }
                             done_heading.set_visible(true);
                             done.set_visible(true);
@@ -175,15 +178,70 @@ pub fn list_page(window: &CampfeWindow, client: Client, list: Todolist) -> adw::
     page
 }
 
-fn todo_row(todo: &Todo) -> adw::ActionRow {
+fn todo_row(window: &CampfeWindow, client: &Client, todo: &Todo) -> adw::ActionRow {
     let row = adw::ActionRow::builder()
         .title(glib::markup_escape_text(&todo.content))
         .build();
     let check = gtk::CheckButton::builder()
         .active(todo.completed)
-        .sensitive(false)
+        .sensitive(client.writes_allowed())
         .valign(gtk::Align::Center)
         .build();
+    // Ticking completes the to-do; unticking reopens it. The box follows
+    // Basecamp's answer, so a failure puts it back.
+    let todo_id = todo.recording.id;
+    let client = client.clone();
+    check.connect_toggled(glib::clone!(
+        #[weak]
+        window,
+        #[weak]
+        row,
+        move |check| {
+            if !check.is_sensitive() {
+                return;
+            }
+            let completing = check.is_active();
+            check.set_sensitive(false);
+            let client = client.clone();
+            let path = format!("/todos/{todo_id}/completion.json");
+            rt::run(
+                async move {
+                    if completing {
+                        client.post_empty(&path).await
+                    } else {
+                        client.delete(&path).await
+                    }
+                },
+                glib::clone!(
+                    #[weak]
+                    window,
+                    #[weak]
+                    check,
+                    #[weak]
+                    row,
+                    move |result| {
+                        check.set_sensitive(true);
+                        match result {
+                            Ok(()) => {
+                                if completing {
+                                    row.add_css_class("dim-label");
+                                } else {
+                                    row.remove_css_class("dim-label");
+                                }
+                            }
+                            Err(error) => {
+                                window.report("could not change the to-do", &error);
+                                // Put it back without going round again.
+                                check.set_sensitive(false);
+                                check.set_active(!completing);
+                                check.set_sensitive(true);
+                            }
+                        }
+                    }
+                ),
+            );
+        }
+    ));
     row.add_prefix(&check);
     let mut details = Vec::new();
     if let Some(due) = todo.due_on {

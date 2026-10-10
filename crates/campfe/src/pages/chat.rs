@@ -32,9 +32,69 @@ struct ChatView {
     loading: Cell<bool>,
     /// Lines shown so far, to tell an empty chat from a short one.
     shown: Cell<usize>,
+    chat_id: i64,
+    /// The creator and time of the newest line, so a posted line joins
+    /// its run.
+    newest: RefCell<Option<(i64, chrono::DateTime<chrono::Utc>)>>,
 }
 
 impl ChatView {
+    /// Post what was typed, and show it once Basecamp has it.
+    fn send(self: &Rc<Self>, entry: &gtk::Entry) {
+        let text = entry.text().trim().to_string();
+        if text.is_empty() {
+            return;
+        }
+        entry.set_sensitive(false);
+        let client = self.client.clone();
+        let path = format!("/chats/{}/lines.json", self.chat_id);
+        let body = serde_json::json!({ "content": text });
+        rt::run(
+            async move { client.post::<ChatLine, _>(&path, &body).await },
+            glib::clone!(
+                #[strong(rename_to = view)]
+                self,
+                #[weak]
+                entry,
+                move |result| {
+                    entry.set_sensitive(true);
+                    match result {
+                        Ok(line) => {
+                            entry.set_text("");
+                            view.append_line(&line);
+                            view.stack.set_visible_child_name("lines");
+                            let adjustment = view.scroller.vadjustment();
+                            glib::idle_add_local_once(move || {
+                                adjustment.set_value(adjustment.upper() - adjustment.page_size());
+                            });
+                        }
+                        Err(error) => {
+                            if let Some(window) = view.window.upgrade() {
+                                window.report(
+                                    &format!("could not post to the chat {}", view.title),
+                                    &error,
+                                );
+                            }
+                            entry.grab_focus();
+                        }
+                    }
+                }
+            ),
+        );
+    }
+
+    /// A new line at the bottom: ours just posted, or (later) one arriving live.
+    fn append_line(&self, line: &ChatLine) {
+        let previous = *self.newest.borrow();
+        self.lines_box
+            .append(&line_row(line, joins(previous, line)));
+        *self.newest.borrow_mut() = line
+            .recording
+            .created_at
+            .map(|at| (line.recording.creator.id, at));
+        self.shown.set(self.shown.get() + 1);
+    }
+
     /// Fetch the next older page, if there is one and none is in flight.
     fn load_older(self: &Rc<Self>) {
         if self.loading.get() {
@@ -61,6 +121,13 @@ impl ChatView {
                             if first_page && page.items.is_empty() {
                                 view.stack.set_visible_child_name("empty");
                                 return;
+                            }
+                            if first_page {
+                                *view.newest.borrow_mut() = page.items.first().and_then(|line| {
+                                    line.recording
+                                        .created_at
+                                        .map(|at| (line.recording.creator.id, at))
+                                });
                             }
                             view.shown.set(view.shown.get() + page.items.len());
                             prepend_lines(&view.lines_box, page.items);
@@ -132,6 +199,7 @@ pub fn page(
     let page = shell(title, &stack);
     page.set_tag(Some(&format!("chat-{chat_id}")));
 
+    let writes_allowed = client.writes_allowed();
     let view = Rc::new(ChatView {
         window: window.downgrade(),
         client,
@@ -142,8 +210,64 @@ pub fn page(
         next: RefCell::new(Some(format!("/chats/{chat_id}/lines.json"))),
         loading: Cell::new(false),
         shown: Cell::new(0),
+        chat_id,
+        newest: RefCell::new(None),
     });
     view.load_older();
+
+    // The composer, along the bottom.
+    let entry = gtk::Entry::builder()
+        .placeholder_text(gettext("Say something…"))
+        .hexpand(true)
+        .sensitive(writes_allowed)
+        .tooltip_text(if writes_allowed {
+            String::new()
+        } else {
+            gettext("Writes to this account are turned off.")
+        })
+        .build();
+    let send = gtk::Button::builder()
+        .icon_name("document-send-symbolic")
+        .tooltip_text(gettext("Send"))
+        .sensitive(writes_allowed)
+        .css_classes(["suggested-action", "circular"])
+        .build();
+    entry.connect_activate(glib::clone!(
+        #[strong]
+        view,
+        move |entry| view.send(entry)
+    ));
+    send.connect_clicked(glib::clone!(
+        #[strong]
+        view,
+        #[weak]
+        entry,
+        move |_| view.send(&entry)
+    ));
+    let composer = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .spacing(8)
+        .margin_top(6)
+        .margin_bottom(10)
+        .margin_start(12)
+        .margin_end(12)
+        .build();
+    composer.append(&entry);
+    composer.append(&send);
+    let clamp = adw::Clamp::builder()
+        .maximum_size(900)
+        .tightening_threshold(700)
+        .child(&composer)
+        .build();
+    if let Some(toolbar) = page.child().and_downcast::<adw::ToolbarView>() {
+        toolbar.add_bottom_bar(&clamp);
+    }
+    // Focus once the page is on screen; before that the sidebar keeps it.
+    if writes_allowed {
+        page.connect_shown(move |_| {
+            entry.grab_focus();
+        });
+    }
 
     // Near the top: the older page goes in above.
     scroller.vadjustment().connect_value_changed(glib::clone!(
@@ -229,6 +353,7 @@ fn line_row(line: &ChatLine, same_run: bool) -> gtk::Widget {
         .wrap_mode(gtk::pango::WrapMode::WordChar)
         .xalign(0.0)
         .selectable(true)
+        .focusable(false)
         .build();
     let markup = if line.is_rich_text() {
         richtext::pango_markup(&line.content)

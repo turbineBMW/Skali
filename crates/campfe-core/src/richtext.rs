@@ -232,6 +232,22 @@ pub fn pango_markup(html: &str) -> String {
     lines.join("\n")
 }
 
+/// Typed text as Basecamp rich text: one `<div>` per paragraph, `<br>`
+/// for a line break inside one, everything escaped.
+pub fn text_to_html(text: &str) -> String {
+    let paragraphs: Vec<String> = text
+        .replace("\r\n", "\n")
+        .split("\n\n")
+        .map(str::trim)
+        .filter(|paragraph| !paragraph.is_empty())
+        .map(|paragraph| {
+            let lines: Vec<String> = paragraph.lines().map(escape).collect();
+            format!("<div>{}</div>", lines.join("<br>"))
+        })
+        .collect();
+    paragraphs.join("")
+}
+
 /// Escape for Pango markup (which is XML).
 pub fn escape(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
@@ -266,6 +282,15 @@ mod tests {
             pango_markup(html),
             "Thanks <b>@Victor Cooper</b> see <b>[shot.png]</b>"
         );
+    }
+
+    #[test]
+    fn typed_text_becomes_paragraphs() {
+        assert_eq!(
+            text_to_html("One <two>\nstill one\n\nThree & four\n"),
+            "<div>One &lt;two&gt;<br>still one</div><div>Three &amp; four</div>"
+        );
+        assert_eq!(text_to_html("  \n"), "");
     }
 
     #[test]

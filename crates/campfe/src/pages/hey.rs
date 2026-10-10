@@ -25,7 +25,6 @@ pub fn page(window: &CampfeWindow, client: Client) -> adw::NavigationPage {
         Some("empty"),
     );
     let page = shell(&gettext("Hey!"), &stack);
-    page.set_tag(Some("hey"));
 
     rt::run(
         async move { client.get::<Readings>("/my/readings.json").await },

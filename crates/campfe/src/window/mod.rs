@@ -414,10 +414,10 @@ impl CampfeWindow {
         self.debug_open(account_id);
     }
 
-    /// A developer hook: `CAMPFE_DEBUG_OPEN=<project id>[:<tool id>]`, or
-    /// `hey`, `pings` or `assignments`, opens that page as soon as the
-    /// account's projects are listed, for a look without clicking through.
-    /// Acted on once.
+    /// A developer hook: `CAMPFE_DEBUG_OPEN=<project id>[:<tool id>[:first]]`,
+    /// or `hey`, `pings` or `assignments`, opens that page as soon as the
+    /// account's projects are listed, for a look without clicking through;
+    /// `:first` goes on into the tool's first item. Acted on once.
     fn debug_open(&self, account_id: i64) {
         let Ok(target) = std::env::var("CAMPFE_DEBUG_OPEN") else {
             return;
@@ -435,10 +435,10 @@ impl CampfeWindow {
             }
             _ => {}
         }
-        let (project_id, tool_id) = match target.split_once(':') {
-            Some((project, tool)) => (project.parse::<i64>().ok(), tool.parse::<i64>().ok()),
-            None => (target.parse::<i64>().ok(), None),
-        };
+        let mut parts = target.split(':');
+        let project_id = parts.next().and_then(|p| p.parse::<i64>().ok());
+        let tool_id = parts.next().and_then(|t| t.parse::<i64>().ok());
+        let first = parts.next() == Some("first");
         let project = self
             .state()
             .projects
@@ -454,8 +454,49 @@ impl CampfeWindow {
         };
         self.open_project(account_id, project.clone());
         if let Some(tool) = project.dock.iter().find(|t| Some(t.id) == tool_id) {
-            self.open_tool(client, &project, tool);
+            self.open_tool(client.clone(), &project, tool);
+            if first {
+                self.debug_open_first(client, tool);
+            }
         }
+    }
+
+    /// The `:first` of the hook: the tool's first message or to-do list.
+    fn debug_open_first(&self, client: Client, tool: &campfe_core::models::DockTool) {
+        let kind = tool.name.clone();
+        let tool_id = tool.id;
+        rt::run(
+            {
+                let client = client.clone();
+                async move {
+                    match kind.as_str() {
+                        "message_board" => client
+                            .get_page::<campfe_core::models::Message>(&format!(
+                                "/message_boards/{tool_id}/messages.json"
+                            ))
+                            .await
+                            .map(|page| page.items.into_iter().next().map(DebugFirst::Message)),
+                        "todoset" => client
+                            .get_page::<campfe_core::models::Todolist>(&format!(
+                                "/todosets/{tool_id}/todolists.json"
+                            ))
+                            .await
+                            .map(|page| page.items.into_iter().next().map(DebugFirst::Todolist)),
+                        _ => Ok(None),
+                    }
+                }
+            },
+            glib::clone!(
+                #[weak(rename_to = window)]
+                self,
+                move |result| match result {
+                    Ok(Some(DebugFirst::Message(message))) => window.open_message(client, message),
+                    Ok(Some(DebugFirst::Todolist(list))) => window.open_todolist(client, list),
+                    Ok(None) => {}
+                    Err(error) => tracing::warn!("debug open: {error}"),
+                }
+            ),
+        );
     }
 
     fn rebuild_sidebar(&self) {
@@ -515,6 +556,12 @@ impl CampfeWindow {
     }
 }
 
+/// What the `:first` debug hook found to open.
+enum DebugFirst {
+    Message(campfe_core::models::Message),
+    Todolist(campfe_core::models::Todolist),
+}
+
 /// The widget for one sidebar entry.
 fn sidebar_row(entry: &SidebarEntry) -> gtk::Widget {
     let (title, icon, badge) = match entry {
@@ -531,6 +578,7 @@ fn sidebar_row(entry: &SidebarEntry) -> gtk::Widget {
                 .child(&label)
                 .activatable(false)
                 .selectable(false)
+                .focusable(false)
                 .build();
             return row.upcast();
         }

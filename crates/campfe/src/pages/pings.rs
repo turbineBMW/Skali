@@ -25,7 +25,6 @@ pub fn page(window: &CampfeWindow, client: Client) -> adw::NavigationPage {
         Some("empty"),
     );
     let page = shell(&gettext("Pings"), &stack);
-    page.set_tag(Some("pings"));
 
     let client_for_rows = client.clone();
     rt::run(

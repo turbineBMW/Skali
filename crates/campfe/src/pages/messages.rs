@@ -138,6 +138,13 @@ pub fn message_page(
         .build();
     comments_box.append(&comments_heading);
     column.append(&comments_box);
+    column.append(&comment_composer(
+        window,
+        client.clone(),
+        message.recording.id,
+        &comments_box,
+        &comments_heading,
+    ));
     if message.recording.comments_count > 0 {
         comments_box.append(&super::loading());
         let path = format!("/recordings/{}/comments.json", message.recording.id);
@@ -197,6 +204,7 @@ fn rich_body(html: &str) -> gtk::Label {
         .wrap_mode(gtk::pango::WrapMode::WordChar)
         .xalign(0.0)
         .selectable(true)
+        .focusable(false)
         .css_classes(["body"])
         .build();
     label.set_markup(&richtext::pango_markup(html));
@@ -225,5 +233,135 @@ fn comment_row(comment: &Comment) -> gtk::Box {
         link.set_margin_start(42);
         column.append(&link);
     }
+    column
+}
+
+/// A box to type a comment in, and the button that posts it. The comment
+/// appears under the others once Basecamp has it.
+fn comment_composer(
+    window: &CampfeWindow,
+    client: Client,
+    recording_id: i64,
+    comments_box: &gtk::Box,
+    heading: &gtk::Label,
+) -> gtk::Box {
+    let heading = heading.clone();
+    let writes_allowed = client.writes_allowed();
+    let column = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(8)
+        .margin_top(12)
+        .build();
+    let text = gtk::TextView::builder()
+        .wrap_mode(gtk::WrapMode::WordChar)
+        .accepts_tab(false)
+        .top_margin(8)
+        .bottom_margin(8)
+        .left_margin(10)
+        .right_margin(10)
+        .sensitive(writes_allowed)
+        .build();
+    let frame = gtk::ScrolledWindow::builder()
+        .child(&text)
+        .focusable(false)
+        .min_content_height(80)
+        .max_content_height(240)
+        .propagate_natural_height(true)
+        .css_classes(["card"])
+        .build();
+    let post = gtk::Button::builder()
+        .label(gettext("Post comment"))
+        .halign(gtk::Align::End)
+        .sensitive(writes_allowed)
+        .css_classes(["suggested-action", "pill"])
+        .tooltip_text(if writes_allowed {
+            String::new()
+        } else {
+            gettext("Writes to this account are turned off.")
+        })
+        .build();
+    post.connect_clicked(glib::clone!(
+        #[weak]
+        window,
+        #[weak]
+        text,
+        #[weak]
+        comments_box,
+        move |button| {
+            let buffer = text.buffer();
+            let typed = buffer
+                .text(&buffer.start_iter(), &buffer.end_iter(), false)
+                .to_string();
+            let html = richtext::text_to_html(&typed);
+            if html.is_empty() {
+                return;
+            }
+            button.set_sensitive(false);
+            text.set_sensitive(false);
+            let client = client.clone();
+            let path = format!("/recordings/{recording_id}/comments.json");
+            let body = serde_json::json!({ "content": html });
+            rt::run(
+                async move { client.post::<Comment, _>(&path, &body).await },
+                glib::clone!(
+                    #[weak]
+                    window,
+                    #[weak]
+                    text,
+                    #[weak]
+                    button,
+                    #[weak]
+                    comments_box,
+                    #[weak]
+                    heading,
+                    move |result| {
+                        button.set_sensitive(true);
+                        text.set_sensitive(true);
+                        match result {
+                            Ok(comment) => {
+                                text.buffer().set_text("");
+                                comments_box.append(&comment_row(&comment));
+                                // The heading, the spinner's slot and the rows: all but two are comments.
+                                let count =
+                                    comments_box.observe_children().n_items().saturating_sub(1);
+                                heading.set_label(&count_label(
+                                    i64::from(count),
+                                    &gettext("comment"),
+                                    &gettext("comments"),
+                                ));
+                            }
+                            Err(error) => window.report("could not post the comment", &error),
+                        }
+                    }
+                ),
+            );
+        }
+    ));
+    // Ctrl+Return posts, as in the chat.
+    let keys = gtk::EventControllerKey::new();
+    keys.connect_key_pressed(glib::clone!(
+        #[weak]
+        post,
+        #[upgrade_or]
+        glib::Propagation::Proceed,
+        move |_, key, _, modifiers| {
+            let is_enter = matches!(key, gtk::gdk::Key::Return | gtk::gdk::Key::KP_Enter);
+            if is_enter && modifiers.contains(gtk::gdk::ModifierType::CONTROL_MASK) {
+                post.emit_clicked();
+                glib::Propagation::Stop
+            } else {
+                glib::Propagation::Proceed
+            }
+        }
+    ));
+    text.add_controller(keys);
+    // A developer hook: focus the box as soon as the page is on screen.
+    if std::env::var_os("CAMPFE_DEBUG_FOCUS").is_some() {
+        text.connect_map(|text| {
+            text.grab_focus();
+        });
+    }
+    column.append(&frame);
+    column.append(&post);
     column
 }

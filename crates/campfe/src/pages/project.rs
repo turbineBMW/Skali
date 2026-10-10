@@ -71,7 +71,5 @@ pub fn page(window: &CampfeWindow, client: Client, project: Project) -> adw::Nav
     } else {
         content.append(&tools);
     }
-    let page = shell(&project.name, &super::scrolled_clamp(&content, 720));
-    page.set_tag(Some(&format!("project-{}", project.id)));
-    page
+    shell(&project.name, &super::scrolled_clamp(&content, 720))
 }

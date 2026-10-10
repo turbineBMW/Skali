@@ -42,6 +42,8 @@ pub fn scrolled_clamp(child: &impl IsA<gtk::Widget>, max_width: i32) -> gtk::Scr
     gtk::ScrolledWindow::builder()
         .hscrollbar_policy(gtk::PolicyType::Never)
         .vexpand(true)
+        // Tab goes to what's inside, not to the scroller itself.
+        .focusable(false)
         .child(&clamp)
         .build()
 }

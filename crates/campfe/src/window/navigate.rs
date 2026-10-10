@@ -5,6 +5,7 @@
 use super::CampfeWindow;
 use crate::i18n::gettext;
 use crate::pages;
+use adw::prelude::*;
 use adw::subclass::prelude::*;
 use campfe_core::api::Client;
 use campfe_core::models::{Campfire, DockTool, Message, Project, Todolist};
@@ -14,15 +15,29 @@ impl CampfeWindow {
         self.state().clients.get(&account_id).cloned()
     }
 
+    /// Show a top-level page (a project, Hey!...) in place of whatever is
+    /// open. One already there, even mid-transition, is reused rather
+    /// than pushed twice: a navigation view refuses a duplicate tag.
+    fn show_root_page(&self, tag: &str, build: impl FnOnce() -> adw::NavigationPage) {
+        let nav = &self.imp().content_nav;
+        if let Some(existing) = nav.find_page(tag) {
+            nav.pop_to_page(&existing);
+            return;
+        }
+        nav.pop_to_tag("home");
+        let page = build();
+        page.set_tag(Some(tag));
+        nav.push(&page);
+    }
+
     /// Replace whatever is open with this project's page.
     pub fn open_project(&self, account_id: i64, project: Project) {
         let Some(client) = self.client_for(account_id) else {
             self.toast(&gettext("This account isn't connected yet."));
             return;
         };
-        let nav = &self.imp().content_nav;
-        nav.pop_to_tag("home");
-        nav.push(&pages::project::page(self, client, project));
+        let tag = format!("project-{}", project.id);
+        self.show_root_page(&tag, || pages::project::page(self, client, project));
     }
 
     /// The pages of the signed-in person, replacing whatever is open.
@@ -30,27 +45,27 @@ impl CampfeWindow {
         let Some(client) = self.client_for(account_id) else {
             return;
         };
-        let nav = &self.imp().content_nav;
-        nav.pop_to_tag("home");
-        nav.push(&pages::hey::page(self, client));
+        self.show_root_page(&format!("hey-{account_id}"), || {
+            pages::hey::page(self, client)
+        });
     }
 
     pub fn open_pings(&self, account_id: i64) {
         let Some(client) = self.client_for(account_id) else {
             return;
         };
-        let nav = &self.imp().content_nav;
-        nav.pop_to_tag("home");
-        nav.push(&pages::pings::page(self, client));
+        self.show_root_page(&format!("pings-{account_id}"), || {
+            pages::pings::page(self, client)
+        });
     }
 
     pub fn open_assignments(&self, account_id: i64) {
         let Some(client) = self.client_for(account_id) else {
             return;
         };
-        let nav = &self.imp().content_nav;
-        nav.pop_to_tag("home");
-        nav.push(&pages::assignments::page(self, client));
+        self.show_root_page(&format!("assignments-{account_id}"), || {
+            pages::assignments::page(self, client)
+        });
     }
 
     /// A ping, or any Campfire reached outside its project page.

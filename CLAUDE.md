@@ -23,6 +23,12 @@ sqlite is bundled by rusqlite; TLS is rustls. Edition 2024, MSRV 1.88.
 `CAMPFE_LOG=debug` (any `tracing` EnvFilter) turns stderr logging up; `~/.cache/campfe/campfe.log`
 always has debug. To exercise the app without touching real data: `XDG_DATA_HOME=<dir> cargo run`.
 
+Dev hooks: `campfe api [GET|POST|PUT|DELETE] <path> [json]` makes one raw call with the stored
+sign-in and prints the body (writes obey the guard below). `CAMPFE_DEBUG_OPEN=<project>[:<tool>[:first]]`
+or `=hey|pings|assignments` opens that page at launch. The sandbox project is 2000001 with Chat
+10392702064, Message Board 10392702077 and To-dos 10392702093. For a screenshot on Hyprland:
+`hyprctl clients -j` for the window geometry, `grim -g`; `wtype` types into the focused widget.
+
 **Sign-in uses Campfe's own Launchpad integration**, whose public client id/secret are in
 `config.rs` (as 37signals' CLI ships its own). `CAMPFE_OAUTH_CLIENT_ID` / `CAMPFE_OAUTH_CLIENT_SECRET`
 at build or run time swap in another; its redirect URI must be exactly
