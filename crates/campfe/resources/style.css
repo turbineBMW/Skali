@@ -1,0 +1,6 @@
+/* Colours come from libadwaita's variables (var(--accent-bg-color) and
+   friends) so the system accent and an Omarchy theme reach everything. */
+
+.navigation-sidebar > row {
+  border-radius: 6px;
+}

@@ -1,0 +1,83 @@
+# CLAUDE.md
+
+Campfe is a native GTK 4 / libadwaita Basecamp client written in Rust. App id
+`io.github.turbinebmw.Campfe`, GSettings schema, data dir `$XDG_DATA_HOME/campfe`, keyring
+schema `io.github.turbinebmw.Campfe.Token`, D-Bus name. The plan and the research behind it
+are in PLAN.md; the API reference is https://github.com/basecamp/bc-api.
+
+## Build & run
+
+No Flatpak, no meson. `cargo run -p campfe` works from a checkout: `build.rs` compiles the
+Blueprints into a GResource and the GSettings schema into `OUT_DIR`, and `settings::load`
+falls back to that compiled schema when the app isn't installed.
+
+```
+just run           # cargo run -p campfe
+just check         # clippy -D warnings + rustfmt --check + cargo test  (keep it clean)
+just install       # sh install.sh -> ~/.local (PREFIX=/usr for system-wide)
+```
+
+Host deps: gtk4 ≥ 4.18, libadwaita ≥ 1.8, blueprint-compiler, glib2 (glib-compile-schemas).
+sqlite is bundled by rusqlite; TLS is rustls. Edition 2024, MSRV 1.88.
+
+`CAMPFE_LOG=debug` (any `tracing` EnvFilter) turns stderr logging up; `~/.cache/campfe/campfe.log`
+always has debug. To exercise the app without touching real data: `XDG_DATA_HOME=<dir> cargo run`.
+
+**Sign-in needs a Launchpad integration.** The client id/secret are baked in at build time from
+`CAMPFE_OAUTH_CLIENT_ID` / `CAMPFE_OAUTH_CLIENT_SECRET` (the same variables at run time override).
+The redirect URI registered with it must be exactly `http://127.0.0.1:8976/callback`.
+
+**Never write to a real project while developing.** Run with `CAMPFE_WRITE_ACCOUNTS=<sandbox
+account id>`: the API client then refuses POST/PUT/DELETE to every other account
+(`ApiError::ReadOnly`). The Example Co account (1000001) is real people's work; test posts go to
+the sandbox account only. The same goes for the `basecamp` CLI and the Basecamp MCP in this
+session: reads only against Example Co.
+
+## Layout
+
+```
+Cargo.toml                 workspace (edition 2024, thin LTO in release)
+crates/campfe-core/src/    no widgets; everything here is unit-tested (`cargo test`)
+  api.rs       reqwest Client per account: User-Agent, bearer, Link pagination, 429/5xx
+               retries, the CAMPFE_WRITE_ACCOUNTS guard
+  auth.rs      Launchpad OAuth: authorize URL, loopback callback listener, exchange, refresh,
+               authorization.json (identity + accounts). TokenSet's Debug hides the tokens.
+  secrets.rs   oo7 keyring: one JSON TokenSet per Launchpad identity
+  db.rs        rusqlite; schema + append-only MIGRATIONS tracked by PRAGMA user_version
+  models.rs    serde structs for what we read (Authorization, Account, Project, DockTool, Person)
+  error.rs     ApiError (+ is_transient)
+  omarchy.rs   Omarchy theme palette -> CSS;  darkmode.rs  HTML dark-mode rewrite (for the
+               rich-text view)
+crates/campfe/src/         the GTK layer
+  main.rs      logging (tracing: stderr + file), gettext, resources, run
+  application.rs  CampfeApplication: db + settings, --hidden, app actions
+  rt.rs        the tokio runtime and `rt::run(job, on_done)` -- the threading model (below)
+  window/      CampfeWindow: mod.rs (State, sidebar, projects), sign_in.rs (OAuth flow, refresh)
+  ui/*.blp     Blueprint templates; the Rust attribute names must match the ids
+  settings.rs  GSettings keys;  config.rs  ids, OAuth app;  i18n.rs  gettext + failure_message
+  accent.rs / omarchy.rs  accent colour and Omarchy theme following (ported from Rustle)
+data/                      gschema, desktop file, metainfo, D-Bus + systemd user units, icons
+po/                        campfe.pot (`just pot`) and <lang>.po; install.sh compiles them
+```
+
+## Rules
+
+- **Threading:** all network and keyring I/O goes through `rt::run(job, on_done)`: `job` is a
+  `Send` future on the tokio runtime with owned data (a cloned `Client`, ids); `on_done` runs on
+  the main loop and is the only place that touches the database or widgets. Never log a token.
+- **Window state** is one `RefCell<State>` behind `state()`/`state_mut()`. Never hold a `Ref`
+  across a call that may need `state_mut()`. Bind to a local before an `if let`/`match`: a
+  temporary in the scrutinee lives for the whole block.
+- **Basecamp manners:** every request carries the User-Agent; listings follow `Link rel=next`
+  (never build page URLs); 429 waits `Retry-After`; use ETags once the cache has them. Flat
+  BC5 routes (`/todos/1.json`) are canonical; `/buckets/...` is legacy.
+- **Several tools of one kind per project is normal** (three Chats, two Message Boards):
+  key everything on the tool id, never on the tool kind.
+- **Errors surfaced to the user are also logged** at the `on_done` boundary, naming the
+  resource; the sentence comes from `i18n::failure_message`.
+- **No account is a real state:** the window has a welcome StatusPage; everything per-account
+  reads `State::accounts` through a guard.
+- **CSS colours** come from libadwaita variables (`var(--accent-bg-color)`) so Omarchy themes
+  reach them.
+- **DB migrations** are append-only.
+- Commits: Conventional Commits, terse. AI co-author trailers are fine here.

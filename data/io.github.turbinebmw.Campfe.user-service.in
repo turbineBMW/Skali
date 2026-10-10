@@ -1,0 +1,17 @@
+[Unit]
+Description=Campfe, following Basecamp in the background
+Documentation=https://github.com/turbinebmw/Campfe
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=dbus
+BusName=io.github.turbinebmw.Campfe
+# --hidden builds the window, so syncing and notifications run, without
+# showing it; opening Campfe from the launcher then presents it.
+ExecStart=@bindir@/campfe --hidden
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical-session.target

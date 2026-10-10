@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: build · clippy · test
+    runs-on: ubuntu-latest
+    # libadwaita >= 1.8 and gtk4 >= 4.18 are newer than Ubuntu's packages.
+    container: archlinux:latest
+    steps:
+      - name: Install toolchain and GTK stack
+        run: pacman -Syu --noconfirm --needed base-devel rust gtk4 libadwaita pkgconf git glib2-devel blueprint-compiler
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-arch-cargo-${{ hashFiles('Cargo.lock') }}
+      - name: Format
+        run: cargo fmt --all -- --check
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Test
+        run: cargo test --workspace
+      - name: Build (release)
+        run: cargo build --release
