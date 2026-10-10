@@ -32,6 +32,15 @@ fn cache_path(url: &str) -> PathBuf {
     cache_dir().join(name)
 }
 
+/// The picture's bytes if they are on disk already (a document that
+/// inlines avatars reads them here; a miss means initials this time).
+pub fn cached_bytes(url: &str) -> Option<Vec<u8>> {
+    if url.is_empty() {
+        return None;
+    }
+    std::fs::read(cache_path(url)).ok()
+}
+
 /// Show the picture at `url` in `avatar`, now if we have it, when it
 /// arrives if not. An empty URL leaves the initials.
 pub fn load_into(avatar: &adw::Avatar, url: &str) {

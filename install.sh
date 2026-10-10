@@ -36,6 +36,7 @@ have_cmd glib-compile-schemas || need glib-compile-schemas glib2 libglib2.0-dev-
 if have_cmd pkg-config; then
   have_lib gtk4 4.18 || need "gtk4 >= 4.18" gtk4 libgtk-4-dev gtk4-devel
   have_lib libadwaita-1 1.8 || need "libadwaita >= 1.8" libadwaita libadwaita-1-dev libadwaita-devel
+  have_lib webkitgtk-6.0 2.48 || need "webkitgtk-6.0 >= 2.48" webkitgtk-6.0 libwebkitgtk-6.0-dev webkitgtk6.0-devel
 else
   need pkg-config pkgconf pkg-config pkgconf-pkg-config
 fi

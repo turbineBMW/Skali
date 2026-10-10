@@ -7,7 +7,6 @@ use super::CampfeWindow;
 use crate::pages;
 use crate::pages::chat::ChatView;
 use crate::rt;
-use adw::prelude::*;
 use adw::subclass::prelude::*;
 use campfe_core::api::Client;
 use campfe_core::feed::{self, Event, FeedMessage};
@@ -21,12 +20,8 @@ const POLL_EVERY: Duration = Duration::from_secs(60);
 /// Hey! is re-counted at most this often, however busy the feed.
 const UNREAD_RECOUNT_EVERY: Duration = Duration::from_secs(20);
 
-/// A message page's comment list and its heading, for live comments.
-#[derive(Clone)]
-pub struct LiveMessage {
-    pub comments_box: glib::WeakRef<gtk::Box>,
-    pub heading: glib::WeakRef<gtk::Label>,
-}
+/// A message page open now, for live comments.
+pub type LiveMessage = std::rc::Weak<pages::messages::MessagePage>;
 
 impl CampfeWindow {
     /// A chat page is open: lines for it go straight in.
@@ -36,14 +31,10 @@ impl CampfeWindow {
             .insert(view.chat_id(), Rc::downgrade(view));
     }
 
-    pub fn watch_message(&self, message_id: i64, comments_box: &gtk::Box, heading: &gtk::Label) {
-        self.state_mut().live_messages.insert(
-            message_id,
-            LiveMessage {
-                comments_box: comments_box.downgrade(),
-                heading: heading.downgrade(),
-            },
-        );
+    pub fn watch_message(&self, page: &Rc<pages::messages::MessagePage>) {
+        self.state_mut()
+            .live_messages
+            .insert(page.message_id(), Rc::downgrade(page));
     }
 
     /// Start the live stream and the poll timer for an account, once.
@@ -227,14 +218,13 @@ impl CampfeWindow {
                     let Some(parent_id) = comment.recording.parent.as_ref().map(|p| p.id) else {
                         return;
                     };
-                    let target = window.state().live_messages.get(&parent_id).cloned();
-                    let Some(target) = target else {
-                        return;
-                    };
-                    if let (Some(comments_box), Some(heading)) =
-                        (target.comments_box.upgrade(), target.heading.upgrade())
-                    {
-                        pages::messages::append_live_comment(&comments_box, &heading, &comment);
+                    let target = window
+                        .state()
+                        .live_messages
+                        .get(&parent_id)
+                        .and_then(std::rc::Weak::upgrade);
+                    if let Some(page) = target {
+                        page.add_comment(comment);
                     }
                 }
             ),

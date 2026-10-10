@@ -17,7 +17,8 @@ just check         # clippy -D warnings + rustfmt --check + cargo test  (keep it
 just install       # sh install.sh -> ~/.local (PREFIX=/usr for system-wide)
 ```
 
-Host deps: gtk4 ≥ 4.18, libadwaita ≥ 1.8, blueprint-compiler, glib2 (glib-compile-schemas).
+Host deps: gtk4 ≥ 4.18, libadwaita ≥ 1.8, webkitgtk-6.0 ≥ 2.48, blueprint-compiler, glib2
+(glib-compile-schemas).
 sqlite is bundled by rusqlite; TLS is rustls. Edition 2024, MSRV 1.88.
 
 `CAMPFE_LOG=debug` (any `tracing` EnvFilter) turns stderr logging up; `~/.cache/campfe/campfe.log`
@@ -53,13 +54,24 @@ crates/campfe-core/src/    no widgets; everything here is unit-tested (`cargo te
   db.rs        rusqlite; schema + append-only MIGRATIONS tracked by PRAGMA user_version
   models.rs    serde structs for what we read (Authorization, Account, Project, DockTool, Person)
   error.rs     ApiError (+ is_transient)
+  feed.rs      the event feed: stream ticket + Action Cable WebSocket (run_stream), the poll lane,
+               Event. Thin pointers: refetch the recording before showing anything.
+  richtext.rs  HTML -> Pango markup / plain text / excerpt; expand_attachments for the WebKit view;
+               text_to_html for composing
   omarchy.rs   Omarchy theme palette -> CSS;  darkmode.rs  HTML dark-mode rewrite (for the
                rich-text view)
 crates/campfe/src/         the GTK layer
   main.rs      logging (tracing: stderr + file), gettext, resources, run
   application.rs  CampfeApplication: db + settings, --hidden, app actions
   rt.rs        the tokio runtime and `rt::run(job, on_done)` -- the threading model (below)
-  window/      CampfeWindow: mod.rs (State, sidebar, projects), sign_in.rs (OAuth flow, refresh)
+  window/      CampfeWindow: mod.rs (State, sidebar, projects, Hey! count + notifications),
+               sign_in.rs (OAuth flow, refresh), navigate.rs (pushing pages), live.rs (one feed
+               per account; registry of open chat/message pages that live events update)
+  pages/       one module per page kind: project, chat (ChatView: paging, composer, live
+               lines), messages (board list; MessagePage: WebKit document of body + comments,
+               images inlined as data: URIs), todos, hey, pings, assignments
+  widgets/     richtext_view.rs: the WebKit view (JS off, CSP, links to the browser, dark-mode
+               adapted);  avatars.rs  avatar fetch + disk cache
   ui/*.blp     Blueprint templates; the Rust attribute names must match the ids
   settings.rs  GSettings keys;  config.rs  ids, OAuth app;  i18n.rs  gettext + failure_message
   accent.rs / omarchy.rs  accent colour and Omarchy theme following (ported from Rustle)

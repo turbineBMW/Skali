@@ -321,6 +321,44 @@ impl CampfeWindow {
         }
     }
 
+    /// A desktop notification for what's new in Hey!, opening it when clicked.
+    fn notify_unreads(&self, account_id: i64, new: &[campfe_core::models::Reading]) {
+        let Some(app) = self.application() else {
+            return;
+        };
+        if !self.settings().boolean(keys::NOTIFICATIONS) {
+            return;
+        }
+        let Some(first) = new.first() else {
+            return;
+        };
+        let title = if new.len() == 1 {
+            first.title.clone()
+        } else {
+            crate::i18n::format(
+                &gettext("{n} new in Hey!"),
+                &[("n", &new.len().to_string())],
+            )
+        };
+        let mut body = Vec::new();
+        if !first.creator.name.is_empty() {
+            body.push(first.creator.name.clone());
+        }
+        if !first.bucket_name.is_empty() {
+            body.push(first.bucket_name.clone());
+        }
+        let excerpt = campfe_core::richtext::excerpt(&first.content_excerpt, 120);
+        let notification = gio::Notification::new(&title);
+        notification.set_body(Some(&if excerpt.is_empty() {
+            body.join(" · ")
+        } else {
+            format!("{}\n{}", body.join(" · "), excerpt)
+        }));
+        notification
+            .set_default_action_and_target_value("app.open-hey", Some(&account_id.to_variant()));
+        app.send_notification(Some(&format!("hey-{account_id}")), &notification);
+    }
+
     /// An identity's token is in hand: build the clients of its accounts
     /// and fetch their projects.
     fn tokens_loaded(&self, identity_id: i64, tokens: campfe_core::auth::TokenSet) {
@@ -373,11 +411,22 @@ impl CampfeWindow {
                 self,
                 move |result| match result {
                     Ok(readings) => {
-                        window
+                        let before = window
                             .state_mut()
                             .unread_counts
                             .insert(account_id, readings.unreads.len());
                         window.rebuild_sidebar();
+                        // More than last time, and the window isn't being
+                        // looked at: say so on the desktop.
+                        if let Some(before) = before
+                            && readings.unreads.len() > before
+                            && !window.is_active()
+                        {
+                            window.notify_unreads(
+                                account_id,
+                                &readings.unreads[..readings.unreads.len() - before],
+                            );
+                        }
                     }
                     Err(error) =>
                         tracing::warn!("could not count unreads of {account_id}: {error}"),

@@ -16,7 +16,7 @@ jobs:
     container: archlinux:latest
     steps:
       - name: Install toolchain and GTK stack
-        run: pacman -Syu --noconfirm --needed base-devel rust gtk4 libadwaita pkgconf git glib2-devel blueprint-compiler
+        run: pacman -Syu --noconfirm --needed base-devel rust gtk4 libadwaita webkitgtk-6.0 pkgconf git glib2-devel blueprint-compiler
       - uses: actions/checkout@v4
       - uses: actions/cache@v4
         with:

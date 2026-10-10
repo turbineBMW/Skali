@@ -9,10 +9,12 @@ mod omarchy;
 mod pages;
 mod rt;
 mod settings;
+mod widgets;
 mod window;
 
 use gtk::prelude::*;
 use gtk::{gio, glib};
+use std::future::Future;
 
 fn main() -> glib::ExitCode {
     init_logging();
@@ -23,6 +25,13 @@ fn main() -> glib::ExitCode {
     // Basecamp really sends, and for seeding a sandbox account. Writes
     // obey CAMPFE_WRITE_ACCOUNTS like the app does.
     let args: Vec<String> = std::env::args().collect();
+    if args.get(1).map(String::as_str) == Some("upload") {
+        let Some(path) = args.get(2) else {
+            eprintln!("usage: campfe upload <file>");
+            return glib::ExitCode::FAILURE;
+        };
+        return upload(std::path::Path::new(path));
+    }
     if matches!(args.get(1).map(String::as_str), Some("api" | "dump")) {
         let rest = &args[2..];
         let (method, rest) = match rest.first().map(String::as_str) {
@@ -77,10 +86,58 @@ fn init_logging() {
     tracing::info!("campfe {} starting", config::VERSION);
 }
 
+/// `campfe upload <file>`: an attachment for rich text; prints the reply
+/// (its `attachable_sgid` is what a `<bc-attachment>` takes).
+fn upload(path: &std::path::Path) -> glib::ExitCode {
+    let bytes = match std::fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            eprintln!("could not read {}: {error}", path.display());
+            return glib::ExitCode::FAILURE;
+        }
+    };
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "file".into());
+    let content_type = gio::content_type_guess(Some(path), Some(bytes.as_slice()))
+        .0
+        .to_string();
+    let content_type = gio::content_type_get_mime_type(&content_type)
+        .map(|m| m.to_string())
+        .unwrap_or_else(|| "application/octet-stream".into());
+    with_first_client(|client| async move {
+        client
+            .upload_attachment(&name, &content_type, bytes)
+            .await
+            .map(|reply| reply.to_string())
+    })
+}
+
 /// The developer's window into the API: the first account's client, one
 /// call, the body as it came. `/path.json` is account-relative; a full URL
 /// (from a `url` field) is used as is.
 fn api_call(method: &str, path: &str, body: Option<&str>) -> glib::ExitCode {
+    let body: Option<serde_json::Value> = match body.map(serde_json::from_str) {
+        Some(Ok(body)) => Some(body),
+        Some(Err(error)) => {
+            eprintln!("the body isn't JSON: {error}");
+            return glib::ExitCode::FAILURE;
+        }
+        None => None,
+    };
+    let method = method.to_string();
+    let path = path.to_string();
+    with_first_client(|client| async move { client.call_raw(&method, &path, body.as_ref()).await })
+}
+
+/// Run one call against the first account's client with the stored
+/// sign-in, printing what it returns.
+fn with_first_client<F, Fut>(call: F) -> glib::ExitCode
+where
+    F: FnOnce(campfe_core::api::Client) -> Fut,
+    Fut: Future<Output = campfe_core::error::Result<String>>,
+{
     use campfe_core::api::Client;
     use campfe_core::db::Database;
     use std::sync::Arc;
@@ -92,14 +149,11 @@ fn api_call(method: &str, path: &str, body: Option<&str>) -> glib::ExitCode {
             eprintln!("could not read the accounts: {error}");
             Vec::new()
         });
-    let Some(account) = accounts.first() else {
+    let Some(account) = accounts.first().cloned() else {
         eprintln!("no account: sign in first");
         return glib::ExitCode::FAILURE;
     };
-    let account = account.clone();
-    let body = body.map(str::to_string);
     rt::handle().block_on(async move {
-        let body = body.as_deref();
         let tokens = match campfe_core::secrets::load_tokens(account.identity_id).await {
             Ok(Some(tokens)) => tokens,
             Ok(None) => {
@@ -113,15 +167,7 @@ fn api_call(method: &str, path: &str, body: Option<&str>) -> glib::ExitCode {
         };
         let token = Arc::new(tokio::sync::RwLock::new(tokens.access_token));
         let client = Client::new(&account.href, token).expect("a client");
-        let body: Option<serde_json::Value> = match body.map(serde_json::from_str) {
-            Some(Ok(body)) => Some(body),
-            Some(Err(error)) => {
-                eprintln!("the body isn't JSON: {error}");
-                return glib::ExitCode::FAILURE;
-            }
-            None => None,
-        };
-        match client.call_raw(method, path, body.as_ref()).await {
+        match call(client).await {
             Ok(body) => {
                 println!("{body}");
                 glib::ExitCode::SUCCESS

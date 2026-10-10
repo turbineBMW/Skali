@@ -168,7 +168,19 @@ impl CampfeApplication {
                 }
             })
             .build();
-        self.add_action_entries([about, quit, sign_in]);
+        // A Hey! notification's click: show the window on that account's Hey!.
+        let open_hey = gio::ActionEntry::builder("open-hey")
+            .parameter_type(Some(glib::VariantTy::INT64))
+            .activate(|app: &Self, _, parameter| {
+                app.activate();
+                if let (Some(window), Some(account_id)) =
+                    (app.main_window(), parameter.and_then(|p| p.get::<i64>()))
+                {
+                    window.open_hey(account_id);
+                }
+            })
+            .build();
+        self.add_action_entries([about, quit, sign_in, open_hey]);
 
         for (name, accels) in [
             ("app.quit", &["<control>q"][..]),

@@ -4,6 +4,7 @@ use crate::config::{APP_ID, BUILT_SCHEMA_DIR};
 use gtk::gio;
 
 pub const FOLLOW_OMARCHY_THEME: &str = "follow-omarchy-theme";
+pub const NOTIFICATIONS: &str = "notifications";
 pub const WINDOW_WIDTH: &str = "window-width";
 pub const WINDOW_HEIGHT: &str = "window-height";
 pub const WINDOW_MAXIMIZED: &str = "window-maximized";

@@ -192,6 +192,39 @@ impl Client {
         Ok(response.json().await?)
     }
 
+    /// Bytes behind an API URL that needs the sign-in: an attachment's
+    /// `download_url`.
+    pub async fn get_bytes(&self, path_or_url: &str) -> Result<Vec<u8>> {
+        let response = self.send(|| self.http.get(self.url(path_or_url))).await?;
+        Ok(response.bytes().await?.to_vec())
+    }
+
+    /// Upload a file for use in rich text: the reply's `attachable_sgid`
+    /// goes into a `<bc-attachment>`.
+    pub async fn upload_attachment(
+        &self,
+        name: &str,
+        content_type: &str,
+        bytes: Vec<u8>,
+    ) -> Result<serde_json::Value> {
+        self.check_write()?;
+        let path = format!(
+            "/attachments.json?name={}",
+            percent_encoding::utf8_percent_encode(name, percent_encoding::NON_ALPHANUMERIC)
+        );
+        let content_type = content_type.to_string();
+        let response = self
+            .send(|| {
+                self.http
+                    .post(self.url(&path))
+                    .header("Content-Type", content_type.clone())
+                    .header("Content-Length", bytes.len())
+                    .body(bytes.clone())
+            })
+            .await?;
+        Ok(response.json().await?)
+    }
+
     /// A write whose reply doesn't matter (completions, pins, deletes).
     pub async fn post_empty(&self, path: &str) -> Result<()> {
         self.check_write()?;

@@ -232,6 +232,80 @@ pub fn pango_markup(html: &str) -> String {
     lines.join("\n")
 }
 
+/// What stands in for a `<bc-attachment>` in a rendered document.
+pub enum Expanded {
+    /// An image we have the bytes of, as a `data:` URI.
+    Image { src: String, alt: String },
+    /// A file (or an image not fetched yet): a link the app handles.
+    File { href: String, filename: String },
+}
+
+/// Rich text for a browser view: every `<bc-attachment>` becomes HTML the
+/// view can show. A mention is a styled name; an image is `<img>` with
+/// whatever `resolve` gives for its sgid; any other file is a link. The
+/// rest of the HTML passes through as Basecamp sent it.
+pub fn expand_attachments(html: &str, resolve: impl Fn(&str) -> Option<Expanded>) -> String {
+    ATTACHMENT
+        .replace_all(html, |c: &regex::Captures| {
+            let attributes = &c[1];
+            let inner = &c[2];
+            let mut sgid = String::new();
+            let mut content_type = String::new();
+            let mut filename = String::new();
+            let mut href = String::new();
+            for capture in ATTRIBUTE.captures_iter(attributes) {
+                match &capture[1] {
+                    "sgid" => sgid = capture[2].to_string(),
+                    "content-type" => content_type = capture[2].to_string(),
+                    "filename" => filename = capture[2].to_string(),
+                    "href" => href = capture[2].to_string(),
+                    _ => {}
+                }
+            }
+            if content_type == "application/vnd.basecamp.mention" {
+                let name = FIGCAPTION
+                    .captures(inner)
+                    .map(|c| plain_text(&c[1]))
+                    .unwrap_or_default();
+                return format!("<span class=\"mention\">@{}</span>", escape(name.trim()));
+            }
+            let caption = FIGCAPTION
+                .captures(inner)
+                .map(|c| plain_text(&c[1]))
+                .unwrap_or_default();
+            match resolve(&sgid) {
+                Some(Expanded::Image { src, alt }) => format!(
+                    "<figure class=\"attachment\"><img src=\"{}\" alt=\"{}\">{}</figure>",
+                    escape(&src),
+                    escape(&alt),
+                    if caption.trim().is_empty() {
+                        String::new()
+                    } else {
+                        format!("<figcaption>{}</figcaption>", escape(caption.trim()))
+                    }
+                ),
+                Some(Expanded::File { href, filename }) => format!(
+                    "<a class=\"file\" href=\"{}\">{}</a>",
+                    escape(&href),
+                    escape(&filename)
+                ),
+                None => {
+                    let name = if filename.is_empty() {
+                        "attachment".to_string()
+                    } else {
+                        filename
+                    };
+                    format!(
+                        "<a class=\"file\" href=\"{}\">{}</a>",
+                        escape(&href),
+                        escape(&name)
+                    )
+                }
+            }
+        })
+        .into_owned()
+}
+
 /// Typed text as Basecamp rich text: one `<div>` per paragraph, `<br>`
 /// for a line break inside one, everything escaped.
 pub fn text_to_html(text: &str) -> String {
@@ -281,6 +355,22 @@ mod tests {
         assert_eq!(
             pango_markup(html),
             "Thanks <b>@Victor Cooper</b> see <b>[shot.png]</b>"
+        );
+    }
+
+    #[test]
+    fn attachments_expand_for_a_browser() {
+        let html = r#"<div>Hi <bc-attachment sgid="m" content-type="application/vnd.basecamp.mention"><figure><img src="x"><figcaption>Ann Lee</figcaption></figure></bc-attachment></div><bc-attachment sgid="i" content-type="image/png" filename="a.png" href="https://d/a.png"><figure><img src="https://preview/x"><figcaption>A caption</figcaption></figure></bc-attachment><bc-attachment sgid="f" content-type="application/pdf" filename="b.pdf" href="https://d/b.pdf"></bc-attachment>"#;
+        let out = expand_attachments(html, |sgid| match sgid {
+            "i" => Some(Expanded::Image {
+                src: "data:image/png;base64,AAAA".into(),
+                alt: "a.png".into(),
+            }),
+            _ => None,
+        });
+        assert_eq!(
+            out,
+            r#"<div>Hi <span class="mention">@Ann Lee</span></div><figure class="attachment"><img src="data:image/png;base64,AAAA" alt="a.png"><figcaption>A caption</figcaption></figure><a class="file" href="https://d/b.pdf">b.pdf</a>"#
         );
     }
 

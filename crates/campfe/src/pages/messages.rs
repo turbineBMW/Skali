@@ -4,12 +4,16 @@
 use super::{avatar, count_label, shell, time_label};
 use crate::i18n::gettext;
 use crate::rt;
+use crate::widgets::richtext_view::RichTextView;
 use crate::window::CampfeWindow;
 use adw::prelude::*;
 use campfe_core::api::Client;
-use campfe_core::models::{Comment, DockTool, Message, Project};
+use campfe_core::models::{Attachment, Comment, DockTool, Message, Project};
 use campfe_core::richtext;
 use gtk::glib;
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 
 pub fn board_page(
     window: &CampfeWindow,
@@ -96,6 +100,134 @@ pub fn board_page(
     page
 }
 
+/// A message and its comments, as one document in a rich-text view, with
+/// the composer along the bottom. Images are fetched with the sign-in and
+/// inlined; the document is rendered again as they arrive, and as comments
+/// do.
+pub struct MessagePage {
+    window: glib::WeakRef<CampfeWindow>,
+    client: Client,
+    message: Message,
+    comments: RefCell<Vec<Comment>>,
+    /// `data:` URIs by attachment sgid, once fetched.
+    images: RefCell<HashMap<String, String>>,
+    fetching: RefCell<HashSet<String>>,
+    view: RichTextView,
+}
+
+impl MessagePage {
+    pub fn message_id(&self) -> i64 {
+        self.message.recording.id
+    }
+
+    /// A comment that arrived (posted here, or live). Dropped if shown.
+    pub fn add_comment(self: &Rc<Self>, comment: Comment) {
+        if self
+            .comments
+            .borrow()
+            .iter()
+            .any(|c| c.recording.id == comment.recording.id)
+        {
+            return;
+        }
+        self.fetch_images(&comment.content_attachments);
+        self.comments.borrow_mut().push(comment);
+        self.render();
+    }
+
+    fn render(&self) {
+        let images = self.images.borrow();
+        let resolve = |sgid: &str| {
+            images.get(sgid).map(|src| richtext::Expanded::Image {
+                src: src.clone(),
+                alt: String::new(),
+            })
+        };
+        let mut body = format!(
+            "<article>{}</article>",
+            richtext::expand_attachments(&self.message.content, resolve)
+        );
+        let comments = self.comments.borrow();
+        let count = comments
+            .len()
+            .max(self.message.recording.comments_count as usize);
+        body.push_str(&format!(
+            "<section class=\"comments\"><h2>{}</h2>",
+            richtext::escape(&count_label(
+                count as i64,
+                &gettext("comment"),
+                &gettext("comments")
+            ))
+        ));
+        for comment in comments.iter() {
+            let person = &comment.recording.creator;
+            let avatar = match crate::avatars::cached_bytes(&person.avatar_url) {
+                Some(bytes) => format!(
+                    "<img class=\"avatar\" src=\"{}\" alt=\"\">",
+                    crate::widgets::richtext_view::data_uri("image/*", &bytes)
+                ),
+                None => format!(
+                    "<span class=\"initials\">{}</span>",
+                    richtext::escape(
+                        &person
+                            .name
+                            .chars()
+                            .next()
+                            .unwrap_or('?')
+                            .to_uppercase()
+                            .to_string()
+                    )
+                ),
+            };
+            body.push_str(&format!(
+                "<div class=\"comment\" id=\"c{}\"><div class=\"byline\">{avatar}<b>{}</b><time>{}</time></div><div class=\"body\">{}</div></div>",
+                comment.recording.id,
+                richtext::escape(&person.name),
+                richtext::escape(&time_label(comment.recording.created_at)),
+                richtext::expand_attachments(&comment.content, resolve)
+            ));
+        }
+        body.push_str("</section>");
+        self.view.set_document(&body);
+    }
+
+    /// Fetch the images among `attachments` with the sign-in, once each,
+    /// and render again as each one lands.
+    fn fetch_images(self: &Rc<Self>, attachments: &[Attachment]) {
+        for attachment in attachments.iter().filter(|a| a.is_image()) {
+            let sgid = attachment.sgid.clone();
+            if sgid.is_empty()
+                || self.images.borrow().contains_key(&sgid)
+                || !self.fetching.borrow_mut().insert(sgid.clone())
+            {
+                continue;
+            }
+            let client = self.client.clone();
+            let url = attachment.download_url.clone();
+            let content_type = attachment.content_type.clone();
+            rt::run(
+                async move { client.get_bytes(&url).await },
+                glib::clone!(
+                    #[strong(rename_to = page)]
+                    self,
+                    move |result| {
+                        page.fetching.borrow_mut().remove(&sgid);
+                        match result {
+                            Ok(bytes) => {
+                                let uri =
+                                    crate::widgets::richtext_view::data_uri(&content_type, &bytes);
+                                page.images.borrow_mut().insert(sgid, uri);
+                                page.render();
+                            }
+                            Err(error) => tracing::warn!("could not fetch an image: {error}"),
+                        }
+                    }
+                ),
+            );
+        }
+    }
+}
+
 /// A message and its comments.
 pub fn message_page(
     window: &CampfeWindow,
@@ -103,6 +235,9 @@ pub fn message_page(
     message: Message,
 ) -> adw::NavigationPage {
     let column = gtk::Box::new(gtk::Orientation::Vertical, 12);
+    column.set_margin_start(12);
+    column.set_margin_end(12);
+    column.set_margin_top(12);
     let title = gtk::Label::builder()
         .label(&message.subject)
         .wrap(true)
@@ -114,68 +249,63 @@ pub fn message_page(
         &message.recording.creator,
         message.recording.created_at,
     ));
-    column.append(&rich_body(&message.content));
-    for attachment in &message.content_attachments {
-        column.append(&attachment_row(
-            &attachment.filename,
-            &attachment.download_url,
-        ));
-    }
+    let view = RichTextView::new();
+    column.append(view.widget());
+    let clamp = adw::Clamp::builder()
+        .maximum_size(800)
+        .tightening_threshold(600)
+        .child(&column)
+        .build();
 
-    let comments_box = gtk::Box::builder()
-        .orientation(gtk::Orientation::Vertical)
-        .spacing(18)
-        .margin_top(24)
-        .build();
-    let comments_heading = gtk::Label::builder()
-        .label(count_label(
-            message.recording.comments_count,
-            &gettext("comment"),
-            &gettext("comments"),
-        ))
-        .xalign(0.0)
-        .css_classes(["heading"])
-        .build();
-    comments_box.append(&comments_heading);
-    column.append(&comments_box);
-    window.watch_message(message.recording.id, &comments_box, &comments_heading);
-    column.append(&comment_composer(
-        window,
-        client.clone(),
-        message.recording.id,
-        &comments_box,
-        &comments_heading,
-    ));
+    let page = Rc::new(MessagePage {
+        window: window.downgrade(),
+        client: client.clone(),
+        message: message.clone(),
+        comments: RefCell::new(Vec::new()),
+        images: RefCell::new(HashMap::new()),
+        fetching: RefCell::new(HashSet::new()),
+        view,
+    });
+    window.watch_message(&page);
+    page.fetch_images(&message.content_attachments);
+    page.render();
+
     if message.recording.comments_count > 0 {
-        comments_box.append(&super::loading());
         let path = format!("/recordings/{}/comments.json", message.recording.id);
         rt::run(
             async move { client.get_all::<Comment>(&path).await },
             glib::clone!(
-                #[weak]
-                window,
-                #[weak]
-                comments_box,
-                move |result| {
-                    if let Some(spinner) = comments_box.last_child() {
-                        comments_box.remove(&spinner);
-                    }
-                    match result {
-                        Ok(comments) => {
-                            for comment in comments {
-                                comments_box.append(&comment_row(&comment));
-                            }
+                #[strong]
+                page,
+                move |result| match result {
+                    Ok(comments) => {
+                        for comment in &comments {
+                            page.fetch_images(&comment.content_attachments);
                         }
-                        Err(error) => window.report("could not load the comments", &error),
+                        page.comments.borrow_mut().extend(comments);
+                        page.render();
+                    }
+                    Err(error) => {
+                        if let Some(window) = page.window.upgrade() {
+                            window.report("could not load the comments", &error);
+                        }
                     }
                 }
             ),
         );
     }
 
-    let page = shell(&message.subject, &super::scrolled_clamp(&column, 760));
-    page.set_tag(Some(&format!("message-{}", message.recording.id)));
-    page
+    let nav_page = shell(&message.subject, &clamp);
+    if let Some(toolbar) = nav_page.child().and_downcast::<adw::ToolbarView>() {
+        let composer = comment_composer(&page);
+        let composer_clamp = adw::Clamp::builder()
+            .maximum_size(800)
+            .tightening_threshold(600)
+            .child(&composer)
+            .build();
+        toolbar.add_bottom_bar(&composer_clamp);
+    }
+    nav_page
 }
 
 fn byline(
@@ -197,79 +327,17 @@ fn byline(
     row
 }
 
-/// Rich text as a label, for now; a WebKit view comes later for images.
-fn rich_body(html: &str) -> gtk::Label {
-    let label = gtk::Label::builder()
-        .use_markup(true)
-        .wrap(true)
-        .wrap_mode(gtk::pango::WrapMode::WordChar)
-        .xalign(0.0)
-        .selectable(true)
-        .focusable(false)
-        .css_classes(["body"])
-        .build();
-    label.set_markup(&richtext::pango_markup(html));
-    label
-}
-
-fn attachment_row(filename: &str, url: &str) -> gtk::LinkButton {
-    gtk::LinkButton::builder()
-        .label(filename)
-        .uri(url)
-        .halign(gtk::Align::Start)
-        .build()
-}
-
-/// A comment that arrived live, under the others, unless it's there already.
-pub fn append_live_comment(comments_box: &gtk::Box, heading: &gtk::Label, comment: &Comment) {
-    let mut child = comments_box.first_child();
-    while let Some(widget) = child {
-        if widget.widget_name() == comment.recording.id.to_string() {
-            return;
-        }
-        child = widget.next_sibling();
-    }
-    comments_box.append(&comment_row(comment));
-    let count = comments_box.observe_children().n_items().saturating_sub(1);
-    heading.set_label(&count_label(
-        i64::from(count),
-        &gettext("comment"),
-        &gettext("comments"),
-    ));
-}
-
-fn comment_row(comment: &Comment) -> gtk::Box {
-    let column = gtk::Box::new(gtk::Orientation::Vertical, 6);
-    column.append(&byline(
-        &comment.recording.creator,
-        comment.recording.created_at,
-    ));
-    let body = rich_body(&comment.content);
-    body.set_margin_start(42);
-    column.append(&body);
-    for attachment in &comment.content_attachments {
-        let link = attachment_row(&attachment.filename, &attachment.download_url);
-        link.set_margin_start(42);
-        column.append(&link);
-    }
-    column
-}
-
 /// A box to type a comment in, and the button that posts it. The comment
-/// appears under the others once Basecamp has it.
-fn comment_composer(
-    window: &CampfeWindow,
-    client: Client,
-    recording_id: i64,
-    comments_box: &gtk::Box,
-    heading: &gtk::Label,
-) -> gtk::Box {
-    let heading = heading.clone();
-    let writes_allowed = client.writes_allowed();
+/// joins the document once Basecamp has it.
+fn comment_composer(page: &Rc<MessagePage>) -> gtk::Box {
+    let writes_allowed = page.client.writes_allowed();
     let column = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
         .spacing(8)
-        .margin_top(12)
+        .margin_top(6)
+        .margin_bottom(10)
+        .margin_start(12)
+        .margin_end(12)
         .build();
     let text = gtk::TextView::builder()
         .wrap_mode(gtk::WrapMode::WordChar)
@@ -283,8 +351,8 @@ fn comment_composer(
     let frame = gtk::ScrolledWindow::builder()
         .child(&text)
         .focusable(false)
-        .min_content_height(80)
-        .max_content_height(240)
+        .min_content_height(60)
+        .max_content_height(200)
         .propagate_natural_height(true)
         .css_classes(["card"])
         .build();
@@ -300,12 +368,10 @@ fn comment_composer(
         })
         .build();
     post.connect_clicked(glib::clone!(
-        #[weak]
-        window,
+        #[strong]
+        page,
         #[weak]
         text,
-        #[weak]
-        comments_box,
         move |button| {
             let buffer = text.buffer();
             let typed = buffer
@@ -317,39 +383,31 @@ fn comment_composer(
             }
             button.set_sensitive(false);
             text.set_sensitive(false);
-            let client = client.clone();
-            let path = format!("/recordings/{recording_id}/comments.json");
+            let client = page.client.clone();
+            let path = format!("/recordings/{}/comments.json", page.message_id());
             let body = serde_json::json!({ "content": html });
             rt::run(
                 async move { client.post::<Comment, _>(&path, &body).await },
                 glib::clone!(
-                    #[weak]
-                    window,
+                    #[strong]
+                    page,
                     #[weak]
                     text,
                     #[weak]
                     button,
-                    #[weak]
-                    comments_box,
-                    #[weak]
-                    heading,
                     move |result| {
                         button.set_sensitive(true);
                         text.set_sensitive(true);
                         match result {
                             Ok(comment) => {
                                 text.buffer().set_text("");
-                                comments_box.append(&comment_row(&comment));
-                                // The heading, the spinner's slot and the rows: all but two are comments.
-                                let count =
-                                    comments_box.observe_children().n_items().saturating_sub(1);
-                                heading.set_label(&count_label(
-                                    i64::from(count),
-                                    &gettext("comment"),
-                                    &gettext("comments"),
-                                ));
+                                page.add_comment(comment);
                             }
-                            Err(error) => window.report("could not post the comment", &error),
+                            Err(error) => {
+                                if let Some(window) = page.window.upgrade() {
+                                    window.report("could not post the comment", &error);
+                                }
+                            }
                         }
                     }
                 ),
