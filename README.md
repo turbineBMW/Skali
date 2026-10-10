@@ -25,7 +25,8 @@ Skali is an independent project. It is not made or endorsed by 37signals.
 - **Card tables**: move a card to another column or straight to Done, and tick off its steps.
 - **Hey!**: your notifications, with an unread count in the sidebar and desktop
   notifications. Opening an item marks it read.
-- **My Assignments, My Bookmarks, Timeline, Search**: the "me" views, across all your projects.
+- **My Assignments, My Bookmarks, Timeline, My Notes, Search**: the "me" views, across all
+  your projects.
 - **Several accounts**, signed in once each through Launchpad.
 - **Runs in the background** (`--hidden`, or "Start at Login" in Preferences), so
   notifications arrive with the window closed.
@@ -36,7 +37,7 @@ Skali is an independent project. It is not made or endorsed by 37signals.
 | Shortcut | Does |
 | --- | --- |
 | Ctrl+J or Ctrl+K | Jump to a project or page, filtered as you type |
-| Alt+1 … Alt+5 | Hey!, Pings, My Assignments, My Bookmarks, Timeline |
+| Alt+1 … Alt+6 | Hey!, Pings, My Assignments, My Bookmarks, Timeline, My Notes |
 | Ctrl+F | Search |
 | F5 | Refresh projects |
 | Alt+Left | Back |

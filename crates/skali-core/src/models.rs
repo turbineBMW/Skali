@@ -354,6 +354,19 @@ pub struct Subscription {
     pub count: i64,
 }
 
+/// Your notebook note (`/my/notes.json`): one per person per account. Until
+/// it's first written its id is null and its content empty.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Default)]
+pub struct MyNote {
+    #[serde(default)]
+    pub id: Option<i64>,
+    /// Rich text (HTML).
+    #[serde(default, deserialize_with = "null_default")]
+    pub content: String,
+    #[serde(default)]
+    pub updated_at: Option<DateTime<Utc>>,
+}
+
 /// One entry of the account's timeline (`/reports/progress.json`): what
 /// happened, worded by Basecamp ("Annie added a comment"), on what, where.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Default)]
@@ -1122,6 +1135,13 @@ mod boost_tests {
             "app_url": "https://app.basecamp.com/1/buckets/2/card_tables/cards/5#__recording_6",
             "creator": {"id": 7, "name": "Annie"}, "bucket": {"id": 2, "name": "My Project"},
             "attachments": []}]"#;
+        let note: MyNote = serde_json::from_str(
+            r#"{"id": null, "type": "Notebook::Note", "created_at": null, "updated_at": null,
+                "content": "", "content_attachments": []}"#,
+        )
+        .unwrap();
+        assert_eq!(note.id, None);
+        assert!(note.content.is_empty());
         let events: Vec<ProgressEvent> = serde_json::from_str(json).unwrap();
         assert_eq!(events[0].target, "Design the card page");
         assert_eq!(events[0].bucket.name, "My Project");

@@ -198,6 +198,7 @@ Done:
   avatars, inline images, project cache.
 - Phase 3: Hey! (mark read on open, mark all read), Pings, My Assignments,
   My Bookmarks (unstar from the list), Timeline (`/reports/progress.json`, by day),
+  My Notes (read, edit as plain text),
   Search (`/search.json`: as you type, by kind, best match or newest;
   Ctrl+F), desktop notifications. Hey! and My Assignments rows open chats, messages,
   cards, docs, uploads and to-do lists in Skali (`links::AppLink`), other
@@ -220,7 +221,7 @@ Done:
   screenshots (also in the metainfo).
 
 Open, in rough order:
-- Local search (FTS5 over the cache, for offline), My Notes.
+- Local search (FTS5 over the cache, for offline).
 - Writes: to-do notes; dragging cards on the board.
 - PAT paste fallback for sign-in.
 - AUR `skali-git` PKGBUILD.

@@ -181,8 +181,16 @@ where
             eprintln!("could not read the accounts: {error}");
             Vec::new()
         });
-    let Some(account) = accounts.first().cloned() else {
-        eprintln!("no account: sign in first");
+    // SKALI_API_ACCOUNT=<id> picks the account; otherwise the first one.
+    let wanted = std::env::var("SKALI_API_ACCOUNT")
+        .ok()
+        .and_then(|id| id.parse::<i64>().ok());
+    let account = match wanted {
+        Some(id) => accounts.iter().find(|a| a.id == id).cloned(),
+        None => accounts.first().cloned(),
+    };
+    let Some(account) = account else {
+        eprintln!("no such account: sign in first (or check SKALI_API_ACCOUNT)");
         return glib::ExitCode::FAILURE;
     };
     rt::handle().block_on(async move {
