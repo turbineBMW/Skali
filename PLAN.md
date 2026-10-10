@@ -197,6 +197,7 @@ Done:
   `/reports/schedules/upcoming.json`, recurring occurrences, what's due),
   avatars, inline images, project cache.
 - Phase 3: Hey! (mark read on open, mark all read), Pings, My Assignments,
+  My Bookmarks (unstar from the list),
   Search (`/search.json`: as you type, by kind, best match or newest;
   Ctrl+F), desktop notifications. Hey! and My Assignments rows open chats, messages,
   cards, docs, uploads and to-do lists in Skali (`links::AppLink`), other
@@ -215,8 +216,7 @@ Done:
 - Phase 6: Omarchy theme following, accent, `po/` template, Preferences.
 
 Open, in rough order:
-- Local search (FTS5 over the cache, for offline), My Bookmarks, My Notes,
-  Timeline.
+- Local search (FTS5 over the cache, for offline), My Notes, Timeline.
 - Writes: boosts on chat lines, to-do notes; dragging cards on the board.
 - PAT paste fallback for sign-in.
 - Keyboard shortcuts, screenshots, README, AUR `skali-git` PKGBUILD.

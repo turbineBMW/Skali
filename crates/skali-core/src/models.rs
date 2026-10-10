@@ -354,6 +354,16 @@ pub struct Subscription {
     pub count: i64,
 }
 
+/// One of your bookmarks (`/my/bookmarks.json`): the recording, whole.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Default)]
+pub struct Bookmark {
+    pub id: i64,
+    #[serde(default)]
+    pub created_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub recording: Recording,
+}
+
 /// Whether a recording is among your bookmarks
 /// (`/recordings/<id>/bookmark.json`).
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Default)]
@@ -1073,5 +1083,12 @@ mod boost_tests {
         assert!(sub.subscribed);
         let mark: BookmarkState = serde_json::from_str(r#"{"bookmarked": false}"#).unwrap();
         assert!(!mark.bookmarked);
+        let json = r#"[{"id": 9771573, "created_at": "2026-10-10T14:34:30.847Z",
+            "recording": {"id": 5, "title": "Design the card page", "type": "Kanban::Card",
+              "app_url": "https://app.basecamp.com/1/buckets/2/card_tables/cards/5",
+              "bucket": {"id": 2, "name": "My Project", "type": "Project"}}}]"#;
+        let marks: Vec<Bookmark> = serde_json::from_str(json).unwrap();
+        assert_eq!(marks[0].recording.kind, "Kanban::Card");
+        assert_eq!(marks[0].recording.bucket.name, "My Project");
     }
 }

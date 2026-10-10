@@ -3,6 +3,7 @@
 //! and fills itself in when the answer comes; the window only pushes it.
 
 pub mod assignments;
+pub mod bookmarks;
 pub mod cards;
 pub mod chat;
 pub mod docs;
