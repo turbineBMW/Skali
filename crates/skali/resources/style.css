@@ -32,3 +32,19 @@
 .column-pink { background-color: var(--purple-2); }
 .column-brown { background-color: var(--brown-3); }
 .column-gray, .column-grey { background-color: var(--dim-label-color); }
+
+/* A boost under a chat line; yours is a button that takes it back. */
+.boost-chip {
+  padding: 0 8px;
+  min-height: 22px;
+  border-radius: 999px;
+  border: 1px solid alpha(currentColor, 0.15);
+  font-size: 0.9em;
+}
+button.boost-chip { background: none; box-shadow: none; }
+button.boost-chip.mine { border-color: var(--accent-bg-color); }
+button.boost-chip:hover { background-color: alpha(currentColor, 0.07); }
+
+/* A chat line's boost button shows while the line is hovered. */
+.chat-line .boost-add { opacity: 0; }
+.chat-line:hover .boost-add, .chat-line .boost-add:focus-visible { opacity: 1; }
