@@ -1,6 +1,7 @@
-//! A card table: its columns side by side, each with its cards; a card
-//! opens to its body, steps and comments, and can be moved to another
-//! column (Done among them) and have its steps ticked.
+//! A card table: its columns side by side, each with its cards, which drag
+//! from column to column (or up and down one); a card opens to its body,
+//! steps and comments, and can be moved to another column (Done among them)
+//! and have its steps ticked.
 
 use super::recording::{RecordingDoc, RecordingPage};
 use super::{avatar, shell};
@@ -8,11 +9,12 @@ use crate::i18n::gettext;
 use crate::rt;
 use crate::window::SkaliWindow;
 use adw::prelude::*;
-use gtk::{gio, glib};
+use gtk::{gdk, gio, glib, graphene};
 use skali_core::api::Client;
 use skali_core::models::{Card, CardColumn, CardStep, CardTable, DockTool, Project};
 use skali_core::richtext;
 use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
 use std::rc::Rc;
 
 /// Column widths: the same for every column so the board reads as a grid.
@@ -83,7 +85,28 @@ fn load_board(
     stack: &gtk::Stack,
     columns_box: &gtk::Box,
 ) {
-    let client_for_columns = client.clone();
+    // A failed drag puts things right by loading again.
+    let reload: Rc<dyn Fn()> = Rc::new(glib::clone!(
+        #[weak]
+        window,
+        #[weak]
+        stack,
+        #[weak]
+        columns_box,
+        #[strong]
+        client,
+        #[to_owned]
+        path,
+        #[to_owned]
+        project_name,
+        move || load_board(&window, &client, &path, &project_name, &stack, &columns_box)
+    ));
+    let board = Rc::new(Board {
+        window: window.downgrade(),
+        client: client.clone(),
+        columns: RefCell::default(),
+        reload,
+    });
     let client = client.clone();
     let path = path.to_string();
     let project_name = project_name.to_string();
@@ -106,11 +129,7 @@ fn load_board(
                         columns_box.remove(&child);
                     }
                     for column in &table.lists {
-                        columns_box.append(&column_widget(
-                            &window,
-                            client_for_columns.clone(),
-                            column,
-                        ));
+                        columns_box.append(&board.column_widget(column));
                     }
                     stack.set_visible_child_name("board");
                 }
@@ -126,79 +145,266 @@ fn load_board(
     );
 }
 
-/// One column: its title, count and cards, each fetched for itself.
-fn column_widget(window: &SkaliWindow, client: Client, column: &CardColumn) -> gtk::Box {
-    let widget = gtk::Box::builder()
-        .orientation(gtk::Orientation::Vertical)
-        .spacing(8)
-        .width_request(COLUMN_WIDTH)
-        .css_classes(["card-column"])
-        .build();
-    let header = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-    if let Some(color) = column.color.as_deref().filter(|c| !c.is_empty()) {
-        let dot = gtk::Box::builder()
-            .width_request(10)
-            .height_request(10)
-            .valign(gtk::Align::Center)
-            .css_classes(["column-dot", &format!("column-{color}")])
-            .build();
-        header.append(&dot);
-    }
-    let title = gtk::Label::builder()
-        .label(&column.recording.title)
-        .xalign(0.0)
-        .hexpand(true)
-        .ellipsize(gtk::pango::EllipsizeMode::End)
-        .css_classes(["heading"])
-        .build();
-    header.append(&title);
-    let count = gtk::Label::builder()
-        .label(column.cards_count.to_string())
-        .css_classes(["dim-label", "caption"])
-        .build();
-    header.append(&count);
-    widget.append(&header);
-    let list = gtk::ListBox::builder()
-        .selection_mode(gtk::SelectionMode::None)
-        .css_classes(["boxed-list"])
-        .build();
-    widget.append(&list);
-    if column.cards_count == 0 {
-        list.append(
-            &adw::ActionRow::builder()
-                .title(gettext("No cards"))
-                .css_classes(["dim-label"])
-                .build(),
-        );
-        return widget;
-    }
-    let path = format!("/card_tables/lists/{}/cards.json", column.recording.id);
-    let client_for_rows = client.clone();
-    rt::run(
-        async move { client.get_all::<Card>(&path).await },
-        glib::clone!(
-            #[weak]
-            window,
-            #[weak]
-            list,
-            move |result| match result {
-                Ok(cards) => {
-                    for card in cards {
-                        list.append(&card_row(&window, client_for_rows.clone(), card));
-                    }
-                }
-                Err(error) => window.report("could not load the cards", &error),
-            }
-        ),
-    );
-    widget
+/// The columns on screen, for moving cards between them by dragging.
+struct Board {
+    window: glib::WeakRef<SkaliWindow>,
+    client: Client,
+    /// Each column's list of cards and its count, by column id.
+    columns: RefCell<HashMap<i64, (gtk::ListBox, gtk::Label)>>,
+    reload: Rc<dyn Fn()>,
 }
 
-fn card_row(window: &SkaliWindow, client: Client, card: Card) -> adw::ActionRow {
+impl Board {
+    /// One column: its title, count and cards, each fetched for itself.
+    /// The whole column takes a dropped card.
+    fn column_widget(self: &Rc<Self>, column: &CardColumn) -> gtk::Box {
+        let widget = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .spacing(8)
+            .width_request(COLUMN_WIDTH)
+            .css_classes(["card-column"])
+            .build();
+        let header = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        if let Some(color) = column.color.as_deref().filter(|c| !c.is_empty()) {
+            let dot = gtk::Box::builder()
+                .width_request(10)
+                .height_request(10)
+                .valign(gtk::Align::Center)
+                .css_classes(["column-dot", &format!("column-{color}")])
+                .build();
+            header.append(&dot);
+        }
+        let title = gtk::Label::builder()
+            .label(&column.recording.title)
+            .xalign(0.0)
+            .hexpand(true)
+            .ellipsize(gtk::pango::EllipsizeMode::End)
+            .css_classes(["heading"])
+            .build();
+        header.append(&title);
+        let count = gtk::Label::builder()
+            .label(column.cards_count.to_string())
+            .css_classes(["dim-label", "caption"])
+            .build();
+        header.append(&count);
+        widget.append(&header);
+        let list = gtk::ListBox::builder()
+            .selection_mode(gtk::SelectionMode::None)
+            .css_classes(["boxed-list"])
+            .build();
+        widget.append(&list);
+        let column_id = column.recording.id;
+        self.columns
+            .borrow_mut()
+            .insert(column_id, (list.clone(), count));
+        if self.client.writes_allowed() {
+            widget.add_controller(self.drop_target(column_id, &list));
+        }
+        if column.cards_count == 0 {
+            list.append(&placeholder());
+            return widget;
+        }
+        let path = format!("/card_tables/lists/{column_id}/cards.json");
+        let client = self.client.clone();
+        rt::run(
+            async move { client.get_all::<Card>(&path).await },
+            glib::clone!(
+                #[strong(rename_to = board)]
+                self,
+                #[weak]
+                list,
+                move |result| match result {
+                    Ok(cards) => {
+                        for card in cards {
+                            list.append(&board.card_row(card));
+                        }
+                    }
+                    Err(error) => {
+                        if let Some(window) = board.window.upgrade() {
+                            window.report("could not load the cards", &error);
+                        }
+                    }
+                }
+            ),
+        );
+        widget
+    }
+
+    /// A card's row, draggable when the account takes writes. The drag
+    /// carries the card id; the drop finds the column it's in.
+    fn card_row(self: &Rc<Self>, card: Card) -> adw::ActionRow {
+        let window = self.window.upgrade();
+        let row = card_row(window.as_ref(), self.client.clone(), card.clone());
+        if !self.client.writes_allowed() {
+            return row;
+        }
+        let source = gtk::DragSource::builder()
+            .actions(gdk::DragAction::MOVE)
+            .build();
+        let payload = card.recording.id.to_string();
+        source.connect_prepare(move |_, _, _| {
+            Some(gdk::ContentProvider::for_value(&payload.to_value()))
+        });
+        source.connect_drag_begin(glib::clone!(
+            #[weak]
+            row,
+            move |source, _| {
+                source.set_icon(Some(&gtk::WidgetPaintable::new(Some(&row))), 0, 0);
+                row.add_css_class("dragged");
+            }
+        ));
+        source.connect_drag_end(glib::clone!(
+            #[weak]
+            row,
+            move |_, _, _| row.remove_css_class("dragged")
+        ));
+        row.add_controller(source);
+        row
+    }
+
+    /// Dropping a card: before the card under the pointer, or at the end.
+    fn drop_target(self: &Rc<Self>, column_id: i64, list: &gtk::ListBox) -> gtk::DropTarget {
+        let target = gtk::DropTarget::new(glib::Type::STRING, gdk::DragAction::MOVE);
+        target.connect_drop(glib::clone!(
+            #[strong(rename_to = board)]
+            self,
+            #[weak]
+            list,
+            #[upgrade_or]
+            false,
+            move |target, value, x, y| {
+                let Some(card_id) = value
+                    .get::<String>()
+                    .ok()
+                    .and_then(|payload| payload.parse::<i64>().ok())
+                else {
+                    return false;
+                };
+                // Where in the list: the pointer is in the column's terms.
+                let index = target
+                    .widget()
+                    .and_then(|column| {
+                        column.compute_point(&list, &graphene::Point::new(x as f32, y as f32))
+                    })
+                    .and_then(|point| list.row_at_y(point.y() as i32))
+                    .filter(|row| row.widget_name() != "placeholder")
+                    .map(|row| row.index());
+                board.move_card(card_id, column_id, index)
+            }
+        ));
+        target
+    }
+
+    /// Move the row now, then tell Basecamp; reload if it says no. False
+    /// when the card isn't on this board.
+    fn move_card(self: &Rc<Self>, card_id: i64, to: i64, index: Option<i32>) -> bool {
+        let columns = self.columns.borrow();
+        let found = columns.iter().find_map(|(column, (list, _))| {
+            card_rows(list)
+                .into_iter()
+                .find(|row| row_card_id(row) == Some(card_id))
+                .map(|row| (*column, row))
+        });
+        let (Some((from, row)), Some((to_list, to_count))) = (found, columns.get(&to)) else {
+            return false;
+        };
+        let Some((from_list, from_count)) = columns.get(&from) else {
+            return false;
+        };
+        let from_index = row.index();
+        // Where it lands among the target's cards, once it has left its own.
+        let mut index = index.unwrap_or_else(|| card_rows(to_list).len() as i32);
+        if from == to {
+            if index == from_index || index == from_index + 1 {
+                return true;
+            }
+            if index > from_index {
+                index -= 1;
+            }
+        }
+        from_list.remove(&row);
+        if card_rows(from_list).is_empty() {
+            from_list.append(&placeholder());
+        }
+        remove_placeholder(to_list);
+        to_list.insert(&row, index);
+        if from != to {
+            bump(from_count, -1);
+            bump(to_count, 1);
+        }
+        drop(columns);
+
+        let client = self.client.clone();
+        let path = format!("/card_tables/cards/{card_id}/moves.json");
+        let body = serde_json::json!({ "column_id": to, "position": index + 1 });
+        rt::run(
+            async move { client.post_no_reply(&path, &body).await },
+            glib::clone!(
+                #[strong(rename_to = board)]
+                self,
+                move |result| {
+                    if let Err(error) = result {
+                        if let Some(window) = board.window.upgrade() {
+                            window.report(&format!("could not move card {card_id}"), &error);
+                        }
+                        (board.reload)();
+                    }
+                }
+            ),
+        );
+        true
+    }
+}
+
+/// "No cards", in an empty column; not a card, not a drop position.
+fn placeholder() -> adw::ActionRow {
+    let row = adw::ActionRow::builder()
+        .title(gettext("No cards"))
+        .css_classes(["dim-label"])
+        .build();
+    row.set_widget_name("placeholder");
+    row
+}
+
+fn remove_placeholder(list: &gtk::ListBox) {
+    let mut child = list.first_child();
+    while let Some(widget) = child {
+        child = widget.next_sibling();
+        if widget.widget_name() == "placeholder" {
+            list.remove(&widget);
+        }
+    }
+}
+
+/// The rows of a column that are cards, in order.
+fn card_rows(list: &gtk::ListBox) -> Vec<gtk::ListBoxRow> {
+    let mut rows = Vec::new();
+    let mut index = 0;
+    while let Some(row) = list.row_at_index(index) {
+        if row.widget_name() != "placeholder" {
+            rows.push(row);
+        }
+        index += 1;
+    }
+    rows
+}
+
+/// A card row carries its card id in its name: `card-<id>`.
+fn row_card_id(row: &gtk::ListBoxRow) -> Option<i64> {
+    row.widget_name().strip_prefix("card-")?.parse().ok()
+}
+
+fn bump(count: &gtk::Label, by: i64) {
+    let n = count.label().parse::<i64>().unwrap_or(0) + by;
+    count.set_label(&n.max(0).to_string());
+}
+
+fn card_row(window: Option<&SkaliWindow>, client: Client, card: Card) -> adw::ActionRow {
     let row = adw::ActionRow::builder()
         .title(glib::markup_escape_text(&card.recording.title))
         .activatable(true)
         .build();
+    row.set_widget_name(&format!("card-{}", card.recording.id));
     let mut details = Vec::new();
     if let Some(due) = card.due_on {
         details.push(crate::i18n::format(
@@ -234,11 +440,12 @@ fn card_row(window: &SkaliWindow, client: Client, card: Card) -> adw::ActionRow 
     if card.completed {
         row.add_css_class("dim-label");
     }
-    row.connect_activated(glib::clone!(
-        #[weak]
-        window,
-        move |_| window.open_card(client.clone(), card.clone())
-    ));
+    let window = window.map(|w| w.downgrade());
+    row.connect_activated(move |_| {
+        if let Some(window) = window.as_ref().and_then(|w| w.upgrade()) {
+            window.open_card(client.clone(), card.clone());
+        }
+    });
     row
 }
 
