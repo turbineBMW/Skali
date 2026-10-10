@@ -197,7 +197,8 @@ Done:
   `/reports/schedules/upcoming.json`, recurring occurrences, what's due),
   avatars, inline images, project cache.
 - Phase 3: Hey! (mark read on open, mark all read), Pings, My Assignments,
-  desktop notifications. Hey! and My Assignments rows open chats, messages,
+  Search (`/search.json`: as you type, by kind, best match or newest;
+  Ctrl+F), desktop notifications. Hey! and My Assignments rows open chats, messages,
   cards, docs, uploads and to-do lists in Campfe (`links::AppLink`), other
   links in the browser; so do Basecamp links in rich text and chat lines. A
   link to a comment scrolls to it.
@@ -209,7 +210,7 @@ Done:
 
 Open, in rough order:
 - ETags: the `kv` table exists, requests don't send `If-None-Match` yet.
-- Search (`/search.json`, FTS5 over the cache), My Bookmarks, My Notes,
+- Local search (FTS5 over the cache, for offline), My Bookmarks, My Notes,
   Timeline.
 - Writes: boosts, move/complete cards, subscribe/bookmark, to-do notes.
 - PAT paste fallback for sign-in.

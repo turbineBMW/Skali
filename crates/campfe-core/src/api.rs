@@ -314,6 +314,22 @@ pub async fn fetch_public_bytes(url: &str) -> Result<Vec<u8>> {
     Ok(response.bytes().await?.to_vec())
 }
 
+/// The path of a search: the words, optionally one kind of recording
+/// (a `key` of `/searches/metadata.json`), best match or newest first.
+pub fn search_path(query: &str, type_name: Option<&str>, newest_first: bool) -> String {
+    let encode = |s: &str| {
+        percent_encoding::utf8_percent_encode(s, percent_encoding::NON_ALPHANUMERIC).to_string()
+    };
+    let mut path = format!("/search.json?q={}", encode(query.trim()));
+    if let Some(type_name) = type_name {
+        path.push_str(&format!("&type_names%5B%5D={}", encode(type_name)));
+    }
+    if newest_first {
+        path.push_str("&sort=recency");
+    }
+    path
+}
+
 /// The development guard: with an allowlist set, only its account ids may
 /// be written to. The account id is the last path segment of the base URL.
 fn writes_allowed_for(base_url: &str, allowlist: Option<String>) -> bool {
@@ -370,6 +386,18 @@ mod tests {
         assert!(writes_allowed_for(base, Some(" 1, 1000001 ".into())));
         assert!(!writes_allowed_for(base, Some("1".into())));
         assert!(!writes_allowed_for(base, Some(String::new())));
+    }
+
+    #[test]
+    fn search_paths_encode_their_words() {
+        assert_eq!(
+            search_path(" fish & chips ", None, false),
+            "/search.json?q=fish%20%26%20chips"
+        );
+        assert_eq!(
+            search_path("x", Some("Kanban::Card"), true),
+            "/search.json?q=x&type_names%5B%5D=Kanban%3A%3ACard&sort=recency"
+        );
     }
 
     #[test]

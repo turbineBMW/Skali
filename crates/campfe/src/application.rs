@@ -196,6 +196,7 @@ impl CampfeApplication {
             ("app.preferences", &["<control>comma"]),
             ("win.sign-in", &["<control>l"]),
             ("win.refresh", &["F5"]),
+            ("win.search", &["<control>f"]),
         ] {
             self.set_accels_for_action(name, accels);
         }

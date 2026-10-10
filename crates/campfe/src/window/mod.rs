@@ -42,6 +42,9 @@ pub enum SidebarEntry {
     Assignments {
         account_id: i64,
     },
+    Search {
+        account_id: i64,
+    },
     /// A section heading, not a row to open.
     Header(String),
     Project {
@@ -204,7 +207,23 @@ impl CampfeWindow {
         let refresh = gio::ActionEntry::builder("refresh")
             .activate(|window: &Self, _, _| window.refresh_projects())
             .build();
-        self.add_action_entries([sign_in, refresh]);
+        // Search the first account, as the sidebar lists them.
+        let search = gio::ActionEntry::builder("search")
+            .activate(|window: &Self, _, _| {
+                let first = {
+                    let state = window.state();
+                    state
+                        .accounts
+                        .values()
+                        .min_by(|a, b| a.name.cmp(&b.name))
+                        .map(|a| a.id)
+                };
+                if let Some(account_id) = first {
+                    window.open_search(account_id, "");
+                }
+            })
+            .build();
+        self.add_action_entries([sign_in, refresh, search]);
         self.imp().sign_in_button.connect_clicked(glib::clone!(
             #[weak(rename_to = window)]
             self,
@@ -243,6 +262,7 @@ impl CampfeWindow {
                     SidebarEntry::Hey { account_id, .. } => window.open_hey(account_id),
                     SidebarEntry::Pings { account_id } => window.open_pings(account_id),
                     SidebarEntry::Assignments { account_id } => window.open_assignments(account_id),
+                    SidebarEntry::Search { account_id } => window.open_search(account_id, ""),
                     SidebarEntry::Header(_) => {}
                     SidebarEntry::Project {
                         account_id,
@@ -525,7 +545,7 @@ impl CampfeWindow {
     }
 
     /// A developer hook: `CAMPFE_DEBUG_OPEN=<project id>[:<tool id>[:first]]`,
-    /// or `hey`, `pings` or `assignments`, or a web link (`https://...`) the
+    /// or `hey`, `pings`, `assignments` or `search[:<words>]`, or a web link (`https://...`) the
     /// way Hey! opens one, opens that page as soon as the account's projects
     /// are listed, for a look without clicking through; `:first` goes on
     /// into the tool's first item. Acted on once.
@@ -534,6 +554,16 @@ impl CampfeWindow {
             return;
         };
         match target.as_str() {
+            search if search == "search" || search.starts_with("search:") => {
+                // SAFETY: the main thread, with no other thread reading the environment.
+                unsafe { std::env::remove_var("CAMPFE_DEBUG_OPEN") };
+                let query = search
+                    .strip_prefix("search:")
+                    .unwrap_or_default()
+                    .to_string();
+                self.open_search(account_id, &query);
+                return;
+            }
             url if url.starts_with("https://") => {
                 // SAFETY: the main thread, with no other thread reading the environment.
                 unsafe { std::env::remove_var("CAMPFE_DEBUG_OPEN") };
@@ -650,6 +680,7 @@ impl CampfeWindow {
                 });
                 entries.push(SidebarEntry::Pings { account_id });
                 entries.push(SidebarEntry::Assignments { account_id });
+                entries.push(SidebarEntry::Search { account_id });
                 entries.push(SidebarEntry::Header(if several {
                     crate::i18n::format(
                         &gettext("{account} projects"),
@@ -714,6 +745,7 @@ fn sidebar_row(entry: &SidebarEntry) -> gtk::Widget {
         SidebarEntry::Assignments { .. } => {
             (gettext("My Assignments"), "object-select-symbolic", 0)
         }
+        SidebarEntry::Search { .. } => (gettext("Search"), "system-search-symbolic", 0),
         SidebarEntry::Project { project, .. } => (project.name.clone(), "", 0),
     };
     let row = adw::ActionRow::builder()

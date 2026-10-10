@@ -197,19 +197,7 @@ fn describe(reading: &Reading) -> String {
         "chats" => gettext("Chat"),
         "mentions" => gettext("Mention"),
         "bubbles" => gettext("Bubbled up"),
-        _ => match reading.kind.as_str() {
-            "Message" => gettext("Message"),
-            "Comment" => gettext("Comment"),
-            "Todo" => gettext("To-do"),
-            "Todolist" => gettext("To-do list"),
-            "Kanban::Card" => gettext("Card"),
-            "Schedule::Entry" => gettext("Event"),
-            "Document" => gettext("Document"),
-            "Upload" => gettext("File"),
-            "Question::Answer" => gettext("Check-in answer"),
-            "Onboarding" => gettext("From Basecamp"),
-            other => other.to_string(),
-        },
+        _ => super::kind_label(&reading.kind),
     }
 }
 

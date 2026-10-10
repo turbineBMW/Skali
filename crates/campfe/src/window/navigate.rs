@@ -74,6 +74,15 @@ impl CampfeWindow {
         });
     }
 
+    pub fn open_search(&self, account_id: i64, query: &str) {
+        let Some(client) = self.client_for(account_id) else {
+            return;
+        };
+        self.show_root_page(&format!("search-{account_id}"), || {
+            pages::search::page(self, client, query)
+        });
+    }
+
     /// A ping, or any Campfire reached outside its project page.
     pub fn open_campfire(&self, client: Client, campfire: &Campfire) {
         let title = if campfire.is_ping() {

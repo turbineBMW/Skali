@@ -986,3 +986,31 @@ mod schedule_tests {
         assert_eq!(again, upcoming);
     }
 }
+
+/// One hit of `GET /search.json`: any kind of recording, with its text.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Default)]
+pub struct SearchResult {
+    #[serde(flatten)]
+    pub recording: Recording,
+    /// The text, plain (not HTML).
+    #[serde(default, deserialize_with = "null_default")]
+    pub plain_text_content: String,
+}
+
+/// `GET /searches/metadata.json`: the kinds of recording search can be
+/// narrowed to.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Default)]
+pub struct SearchMetadata {
+    #[serde(default)]
+    pub recording_search_types: Vec<SearchType>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Default)]
+pub struct SearchType {
+    /// For `type_names[]`; none for "Everything".
+    #[serde(default)]
+    pub key: Option<String>,
+    /// Its name, as Basecamp shows it.
+    #[serde(default, deserialize_with = "null_default")]
+    pub value: String,
+}

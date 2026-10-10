@@ -12,6 +12,7 @@ pub mod pings;
 pub mod project;
 pub mod recording;
 pub mod schedule;
+pub mod search;
 pub mod todos;
 
 use crate::i18n::gettext;
@@ -118,4 +119,29 @@ pub fn count_label(n: i64, singular: &str, plural: &str) -> String {
         &gettext("{n} {what}"),
         &[("n", &n.to_string()), ("what", word)],
     )
+}
+
+/// A kind of recording (its `type`) in a word, for a subtitle.
+pub fn kind_label(kind: &str) -> String {
+    match kind {
+        "Message" => gettext("Message"),
+        "Comment" => gettext("Comment"),
+        "Todo" => gettext("To-do"),
+        "Todolist" => gettext("To-do list"),
+        "Kanban::Card" => gettext("Card"),
+        "Schedule::Entry" => gettext("Event"),
+        "Document" => gettext("Document"),
+        "Upload" | "Attachment" => gettext("File"),
+        "Vault" => gettext("Folder"),
+        "Question" => gettext("Check-in"),
+        "Question::Answer" => gettext("Check-in answer"),
+        "Chat::Transcript" | "Chat" => gettext("Chat"),
+        "Circle" => gettext("Ping"),
+        "Mention" => gettext("Mention"),
+        "Inbox::Forward" => gettext("Forwarded email"),
+        "Client::Correspondence" => gettext("Client email"),
+        "Onboarding" => gettext("From Basecamp"),
+        other if other.starts_with("Chat::Lines") => gettext("Chat"),
+        other => other.to_string(),
+    }
 }

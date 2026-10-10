@@ -26,9 +26,9 @@ always has debug. To exercise the app without touching real data: `XDG_DATA_HOME
 
 Dev hooks: `campfe api [GET|POST|PUT|DELETE] <path> [json]` makes one raw call with the stored
 sign-in and prints the body (writes obey the guard below). `CAMPFE_DEBUG_OPEN=<project>[:<tool>[:first]]`
-or `=hey|pings|assignments`, or `=<app_url>` (routed as a Hey! row is) opens that page at launch.
-The sandbox project is 2000001 with Chat 10392702064, Message Board 10392702077 and To-dos
-10392702093. For a screenshot on Hyprland:
+or `=hey|pings|assignments|search[:<words>]`, or `=<app_url>` (routed as a Hey! row is) opens
+that page at launch. The sandbox project is 2000001 with Chat 10392702064, Message Board
+10392702077, To-dos 10392702093 and Schedule 10392772614. For a screenshot on Hyprland:
 `hyprctl clients -j` for the window geometry, `grim -g`; `wtype` types into the focused widget.
 Only text, Tab and Return get through `wtype` here (modifiers, BackSpace and Escape don't), and
 the portal file chooser takes none of it: `CAMPFE_DEBUG_ATTACH=<file>` starts every attachment

@@ -142,10 +142,12 @@ pub fn plain_text(html: &str) -> String {
 /// One line for a list row: the plain text, whitespace collapsed, cut at
 /// `max` characters with an ellipsis.
 pub fn excerpt(html: &str, max: usize) -> String {
-    let text = WHITESPACE
-        .replace_all(&plain_text(html), " ")
-        .trim()
-        .to_string();
+    shorten(&plain_text(html), max)
+}
+
+/// Plain text on one line, cut to `max` characters with an ellipsis.
+pub fn shorten(text: &str, max: usize) -> String {
+    let text = WHITESPACE.replace_all(text, " ").trim().to_string();
     if text.chars().count() <= max {
         return text;
     }
@@ -395,6 +397,15 @@ mod tests {
             attachment_tag("BAh7==--1a\""),
             r#"<bc-attachment sgid="BAh7==--1a&quot;"></bc-attachment>"#
         );
+    }
+
+    #[test]
+    fn shorten_keeps_what_looks_like_tags() {
+        assert_eq!(
+            shorten("With <b>tags</b>\n & more", 100),
+            "With <b>tags</b> & more"
+        );
+        assert_eq!(shorten("abcdef", 4), "abc…");
     }
 
     #[test]
