@@ -202,3 +202,298 @@ mod tests {
         assert_eq!(basecamp[0].id, 1000001);
     }
 }
+
+// ---------------------------------------------------------------------------
+// Recordings: everything inside a project shares these fields.
+
+/// The project (or, for a ping, the circle) a recording lives in.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Default)]
+pub struct Bucket {
+    pub id: i64,
+    #[serde(default, deserialize_with = "null_default")]
+    pub name: String,
+    /// `Project`, or something else for a ping's circle.
+    #[serde(default, deserialize_with = "null_default", rename = "type")]
+    pub kind: String,
+}
+
+/// What a recording sits in: a message's board, a to-do's list.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Default)]
+pub struct Parent {
+    pub id: i64,
+    #[serde(default, deserialize_with = "null_default")]
+    pub title: String,
+    #[serde(default, deserialize_with = "null_default", rename = "type")]
+    pub kind: String,
+    #[serde(default, deserialize_with = "null_default")]
+    pub url: String,
+    #[serde(default, deserialize_with = "null_default")]
+    pub app_url: String,
+}
+
+/// The fields every recording carries. Flattened into each kind.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Default)]
+pub struct Recording {
+    pub id: i64,
+    /// `active`, `archived` or `trashed`.
+    #[serde(default, deserialize_with = "null_default")]
+    pub status: String,
+    #[serde(default)]
+    pub created_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub updated_at: Option<DateTime<Utc>>,
+    #[serde(default, deserialize_with = "null_default")]
+    pub title: String,
+    /// The wire type: `Message`, `Todo`, `Chat::Lines::RichText`...
+    #[serde(default, deserialize_with = "null_default", rename = "type")]
+    pub kind: String,
+    #[serde(default, deserialize_with = "null_default")]
+    pub url: String,
+    #[serde(default, deserialize_with = "null_default")]
+    pub app_url: String,
+    #[serde(default)]
+    pub bucket: Bucket,
+    #[serde(default)]
+    pub creator: Person,
+    #[serde(default)]
+    pub parent: Option<Parent>,
+    #[serde(default)]
+    pub comments_count: i64,
+    #[serde(default, deserialize_with = "null_default")]
+    pub comments_url: String,
+    #[serde(default)]
+    pub boosts_count: i64,
+}
+
+/// A file inside rich text, listed beside it (`content_attachments`).
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Default)]
+pub struct Attachment {
+    pub id: i64,
+    #[serde(default, deserialize_with = "null_default")]
+    pub sgid: String,
+    #[serde(default, deserialize_with = "null_default")]
+    pub filename: String,
+    #[serde(default, deserialize_with = "null_default")]
+    pub content_type: String,
+    #[serde(default)]
+    pub byte_size: i64,
+    #[serde(default)]
+    pub width: Option<i64>,
+    #[serde(default)]
+    pub height: Option<i64>,
+    #[serde(default, deserialize_with = "null_default")]
+    pub download_url: String,
+    #[serde(default)]
+    pub previewable: bool,
+    #[serde(default, deserialize_with = "null_default")]
+    pub preview_url: String,
+    #[serde(default, deserialize_with = "null_default")]
+    pub thumbnail_url: String,
+}
+
+impl Attachment {
+    pub fn is_image(&self) -> bool {
+        self.content_type.starts_with("image/")
+    }
+}
+
+/// A Campfire: a project's chat, or a ping (whose bucket isn't a Project).
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Default)]
+pub struct Campfire {
+    #[serde(flatten)]
+    pub recording: Recording,
+    #[serde(default, deserialize_with = "null_default")]
+    pub topic: String,
+    #[serde(default, deserialize_with = "null_default")]
+    pub lines_url: String,
+}
+
+impl Campfire {
+    /// A ping is a Campfire outside any project.
+    pub fn is_ping(&self) -> bool {
+        self.recording.bucket.kind != "Project"
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Default)]
+pub struct ChatLine {
+    #[serde(flatten)]
+    pub recording: Recording,
+    /// Plain text, or HTML for `Chat::Lines::RichText`.
+    #[serde(default, deserialize_with = "null_default")]
+    pub content: String,
+}
+
+impl ChatLine {
+    pub fn is_rich_text(&self) -> bool {
+        self.recording.kind.ends_with("RichText")
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Default)]
+pub struct MessageBoard {
+    #[serde(flatten)]
+    pub recording: Recording,
+    #[serde(default)]
+    pub messages_count: i64,
+    #[serde(default, deserialize_with = "null_default")]
+    pub messages_url: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Default)]
+pub struct Message {
+    #[serde(flatten)]
+    pub recording: Recording,
+    #[serde(default, deserialize_with = "null_default")]
+    pub subject: String,
+    /// Rich text (HTML).
+    #[serde(default, deserialize_with = "null_default")]
+    pub content: String,
+    #[serde(default)]
+    pub content_attachments: Vec<Attachment>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Default)]
+pub struct Comment {
+    #[serde(flatten)]
+    pub recording: Recording,
+    /// Rich text (HTML).
+    #[serde(default, deserialize_with = "null_default")]
+    pub content: String,
+    #[serde(default)]
+    pub content_attachments: Vec<Attachment>,
+}
+
+/// The to-do set: a project's one container of to-do lists.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Default)]
+pub struct Todoset {
+    #[serde(flatten)]
+    pub recording: Recording,
+    #[serde(default, deserialize_with = "null_default")]
+    pub name: String,
+    #[serde(default)]
+    pub todos_count: i64,
+    #[serde(default)]
+    pub todolists_count: i64,
+    #[serde(default, deserialize_with = "null_default")]
+    pub todolists_url: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Default)]
+pub struct Todolist {
+    #[serde(flatten)]
+    pub recording: Recording,
+    #[serde(default, deserialize_with = "null_default")]
+    pub name: String,
+    /// Rich text (HTML).
+    #[serde(default, deserialize_with = "null_default")]
+    pub description: String,
+    #[serde(default)]
+    pub completed: bool,
+    /// "3/7"
+    #[serde(default, deserialize_with = "null_default")]
+    pub completed_ratio: String,
+    #[serde(default, deserialize_with = "null_default")]
+    pub todos_url: String,
+    #[serde(default, deserialize_with = "null_default")]
+    pub groups_url: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Default)]
+pub struct Todo {
+    #[serde(flatten)]
+    pub recording: Recording,
+    /// The to-do's text, plain.
+    #[serde(default, deserialize_with = "null_default")]
+    pub content: String,
+    /// Rich text (HTML).
+    #[serde(default, deserialize_with = "null_default")]
+    pub description: String,
+    #[serde(default)]
+    pub completed: bool,
+    #[serde(default)]
+    pub starts_on: Option<chrono::NaiveDate>,
+    #[serde(default)]
+    pub due_on: Option<chrono::NaiveDate>,
+    #[serde(default)]
+    pub assignees: Vec<Person>,
+    #[serde(default)]
+    pub subtasks_count: i64,
+    #[serde(default)]
+    pub subtasks_completed_count: i64,
+}
+
+/// One entry of Hey!: something unread, or read, for the signed-in person.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Default)]
+pub struct Reading {
+    pub id: i64,
+    #[serde(default)]
+    pub created_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub updated_at: Option<DateTime<Utc>>,
+    /// `inbox`, `chats`, `pings`, `bubbles`, `mentions`.
+    #[serde(default, deserialize_with = "null_default")]
+    pub section: String,
+    #[serde(default)]
+    pub unread_count: i64,
+    #[serde(default)]
+    pub unread_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub read_at: Option<DateTime<Utc>>,
+    #[serde(default, deserialize_with = "null_default")]
+    pub readable_sgid: String,
+    #[serde(default, deserialize_with = "null_default")]
+    pub title: String,
+    #[serde(default, deserialize_with = "null_default", rename = "type")]
+    pub kind: String,
+    #[serde(default, deserialize_with = "null_default")]
+    pub bucket_name: String,
+    #[serde(default)]
+    pub creator: Person,
+    #[serde(default, deserialize_with = "null_default")]
+    pub content_excerpt: String,
+    #[serde(default, deserialize_with = "null_default")]
+    pub app_url: String,
+    #[serde(default)]
+    pub subscribed: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Default)]
+pub struct Readings {
+    #[serde(default)]
+    pub unreads: Vec<Reading>,
+    #[serde(default)]
+    pub reads: Vec<Reading>,
+    #[serde(default)]
+    pub bubble_ups: Vec<Reading>,
+}
+
+#[cfg(test)]
+mod recording_tests {
+    use super::*;
+
+    #[test]
+    fn chat_line_flattens_the_recording() {
+        let json = r#"{"id": 1069479442, "status": "active", "type": "Chat::Lines::RichText",
+            "created_at": "2026-03-12T16:43:00.000Z", "parent": {"id": 1, "type": "Chat::Transcript"},
+            "bucket": {"id": 2, "name": "Newsroom", "type": "Project"},
+            "creator": {"id": 3, "name": "Victor Cooper", "personable_type": "User", "tagline": null},
+            "content": "<div>Words</div>"}"#;
+        let line: ChatLine = serde_json::from_str(json).unwrap();
+        assert_eq!(line.recording.id, 1069479442);
+        assert_eq!(line.recording.creator.name, "Victor Cooper");
+        assert_eq!(line.recording.bucket.kind, "Project");
+        assert!(line.is_rich_text());
+        assert_eq!(line.recording.parent.unwrap().kind, "Chat::Transcript");
+    }
+
+    #[test]
+    fn todo_dates_and_assignees() {
+        let json = r#"{"id": 1, "content": "Ship it", "completed": false, "due_on": "2026-10-31",
+            "starts_on": null, "assignees": [{"id": 9, "name": "A"}], "bucket": {"id": 2}}"#;
+        let todo: Todo = serde_json::from_str(json).unwrap();
+        assert_eq!(todo.due_on.unwrap().to_string(), "2026-10-31");
+        assert_eq!(todo.assignees[0].name, "A");
+        assert_eq!(todo.recording.creator, Person::default());
+    }
+}

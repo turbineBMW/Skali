@@ -117,6 +117,30 @@ impl Client {
         Ok(response.json().await?)
     }
 
+    /// Any call, the body as text: for `campfe api`.
+    pub async fn call_raw(
+        &self,
+        method: &str,
+        path: &str,
+        body: Option<&serde_json::Value>,
+    ) -> Result<String> {
+        let method = reqwest::Method::from_bytes(method.as_bytes())
+            .map_err(|_| ApiError::Auth(format!("not an HTTP method: {method}")))?;
+        if method != reqwest::Method::GET {
+            self.check_write()?;
+        }
+        let response = self
+            .send(|| {
+                let request = self.http.request(method.clone(), self.url(path));
+                match body {
+                    Some(body) => request.json(body),
+                    None => request.header("Content-Length", "0"),
+                }
+            })
+            .await?;
+        Ok(response.text().await?)
+    }
+
     /// One page of a listing. `path` is the first page's path, or the
     /// `next` of the page before.
     pub async fn get_page<T: DeserializeOwned>(&self, path: &str) -> Result<Page<T>> {

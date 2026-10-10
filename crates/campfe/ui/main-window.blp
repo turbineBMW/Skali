@@ -97,30 +97,38 @@ template $CampfeWindow: Adw.ApplicationWindow {
               content: Gtk.ScrolledWindow {
                 hscrollbar-policy: never;
 
-                child: Gtk.ListView sidebar_list {
+                child: Gtk.ListBox sidebar_list {
+                  selection-mode: single;
+
                   styles ["navigation-sidebar"]
                 };
               };
             };
           };
 
-          content: Adw.NavigationPage content_page {
+          content: Adw.NavigationPage {
             title: _("Campfe");
-            child: Adw.ToolbarView {
-              [top]
-              Adw.HeaderBar {
-                [end]
-                Gtk.Button {
-                  icon-name: "view-refresh-symbolic";
-                  tooltip-text: _("Refresh");
-                  action-name: "win.refresh";
-                }
-              }
+            child: Adw.NavigationView content_nav {
+              Adw.NavigationPage content_page {
+                title: _("Campfe");
+                tag: "home";
+                child: Adw.ToolbarView {
+                  [top]
+                  Adw.HeaderBar {
+                    [end]
+                    Gtk.Button {
+                      icon-name: "view-refresh-symbolic";
+                      tooltip-text: _("Refresh");
+                      action-name: "win.refresh";
+                    }
+                  }
 
-              content: Adw.StatusPage content_placeholder {
-                icon-name: "io.github.turbinebmw.Campfe-symbolic";
-                title: _("Pick a project");
-              };
+                  content: Adw.StatusPage content_placeholder {
+                    icon-name: "io.github.turbinebmw.Campfe-symbolic";
+                    title: _("Pick a project");
+                  };
+                };
+              }
             };
           };
         };

@@ -2,6 +2,7 @@
 //! tools and their content on the right. One class, one `impl` block per
 //! concern across the files of this module.
 
+mod navigate;
 mod sign_in;
 
 use crate::application::CampfeApplication;
@@ -25,6 +26,13 @@ use std::sync::Arc;
 const PAGE_NO_ACCOUNT: &str = "no-account";
 const PAGE_SIGNING_IN: &str = "signing-in";
 const PAGE_MAIN: &str = "main";
+
+/// One sidebar row: a project, and the account it belongs to.
+#[derive(Clone, Debug)]
+pub struct SidebarEntry {
+    pub account_id: i64,
+    pub project: Project,
+}
 
 /// Everything the window mutates. Kept in one `RefCell` behind short
 /// borrows: read what you need, drop the borrow, then act.
@@ -59,7 +67,9 @@ mod imp {
         #[template_child]
         pub split: TemplateChild<adw::NavigationSplitView>,
         #[template_child]
-        pub sidebar_list: TemplateChild<gtk::ListView>,
+        pub sidebar_list: TemplateChild<gtk::ListBox>,
+        #[template_child]
+        pub content_nav: TemplateChild<adw::NavigationView>,
         #[template_child]
         pub sidebar_title: TemplateChild<adw::WindowTitle>,
         #[template_child]
@@ -70,7 +80,8 @@ mod imp {
         pub db: OnceCell<Rc<RefCell<Database>>>,
         pub settings: OnceCell<gio::Settings>,
         pub state: RefCell<State>,
-        pub project_store: OnceCell<gtk::StringList>,
+        /// `SidebarEntry`s, in sidebar order.
+        pub sidebar_store: OnceCell<gio::ListStore>,
     }
 
     #[glib::object_subclass]
@@ -174,36 +185,45 @@ impl CampfeWindow {
         ));
     }
 
-    /// For now the sidebar is the flat list of projects across accounts.
+    /// The sidebar: every account's projects, one row each. Rows are built
+    /// from `SidebarEntry`s in a ListStore so a refresh splices in place.
     fn setup_sidebar(&self) {
         let imp = self.imp();
-        let store = gtk::StringList::new(&[]);
-        let factory = gtk::SignalListItemFactory::new();
-        factory.connect_setup(|_, item| {
-            let item = item.downcast_ref::<gtk::ListItem>().expect("a list item");
-            let label = gtk::Label::builder()
-                .xalign(0.0)
-                .ellipsize(gtk::pango::EllipsizeMode::End)
-                .margin_top(8)
-                .margin_bottom(8)
-                .margin_start(6)
-                .margin_end(6)
+        let store = gio::ListStore::new::<glib::BoxedAnyObject>();
+        imp.sidebar_list.bind_model(Some(&store), |object| {
+            let entry = object
+                .downcast_ref::<glib::BoxedAnyObject>()
+                .expect("a boxed entry");
+            let entry = entry.borrow::<SidebarEntry>();
+            let row = adw::ActionRow::builder()
+                .title(glib::markup_escape_text(&entry.project.name))
+                .activatable(true)
                 .build();
-            item.set_child(Some(&label));
-        });
-        factory.connect_bind(|_, item| {
-            let item = item.downcast_ref::<gtk::ListItem>().expect("a list item");
-            let Some(text) = item.item().and_downcast::<gtk::StringObject>() else {
-                return;
-            };
-            if let Some(label) = item.child().and_downcast::<gtk::Label>() {
-                label.set_text(&text.string());
+            if !entry.project.purpose.is_empty() && entry.project.purpose != "topic" {
+                row.set_subtitle(&glib::markup_escape_text(&entry.project.purpose));
             }
+            row.upcast()
         });
-        imp.sidebar_list.set_factory(Some(&factory));
-        imp.sidebar_list
-            .set_model(Some(&gtk::NoSelection::new(Some(store.clone()))));
-        let _ = imp.project_store.set(store);
+        imp.sidebar_list.connect_row_activated(glib::clone!(
+            #[weak(rename_to = window)]
+            self,
+            move |_, row| {
+                let store = window
+                    .imp()
+                    .sidebar_store
+                    .get()
+                    .expect("set in setup_sidebar");
+                let Some(entry) = store
+                    .item(row.index() as u32)
+                    .and_downcast::<glib::BoxedAnyObject>()
+                else {
+                    return;
+                };
+                let entry = entry.borrow::<SidebarEntry>().clone();
+                window.open_project(entry.account_id, entry.project);
+            }
+        ));
+        let _ = imp.sidebar_store.set(store);
     }
 
     pub fn toast(&self, text: &str) {
@@ -328,12 +348,43 @@ impl CampfeWindow {
         tracing::info!("account {account_id}: {} projects", projects.len());
         self.state_mut().projects.insert(account_id, projects);
         self.rebuild_sidebar();
+        self.debug_open(account_id);
+    }
+
+    /// A developer hook: `CAMPFE_DEBUG_OPEN=<project id>[:<tool id>]` opens
+    /// that page as soon as the project is listed, for a look without
+    /// clicking through. Acted on once.
+    fn debug_open(&self, account_id: i64) {
+        let Ok(target) = std::env::var("CAMPFE_DEBUG_OPEN") else {
+            return;
+        };
+        let (project_id, tool_id) = match target.split_once(':') {
+            Some((project, tool)) => (project.parse::<i64>().ok(), tool.parse::<i64>().ok()),
+            None => (target.parse::<i64>().ok(), None),
+        };
+        let project = self
+            .state()
+            .projects
+            .get(&account_id)
+            .and_then(|projects| projects.iter().find(|p| Some(p.id) == project_id).cloned());
+        let Some(project) = project else {
+            return;
+        };
+        // SAFETY: the main thread, with no other thread reading the environment.
+        unsafe { std::env::remove_var("CAMPFE_DEBUG_OPEN") };
+        let Some(client) = self.client_for(account_id) else {
+            return;
+        };
+        self.open_project(account_id, project.clone());
+        if let Some(tool) = project.dock.iter().find(|t| Some(t.id) == tool_id) {
+            self.open_tool(client, &project, tool);
+        }
     }
 
     fn rebuild_sidebar(&self) {
         let imp = self.imp();
-        let store = imp.project_store.get().expect("set in setup_sidebar");
-        let names: Vec<String> = {
+        let store = imp.sidebar_store.get().expect("set in setup_sidebar");
+        let entries: Vec<SidebarEntry> = {
             let state = self.state();
             let mut accounts: Vec<&Account> = state.accounts.values().collect();
             accounts.sort_by(|a, b| a.name.cmp(&b.name));
@@ -349,13 +400,17 @@ impl CampfeWindow {
                         .get(&account.id)
                         .into_iter()
                         .flatten()
-                        .map(|p| p.name.clone())
+                        .map(|project| SidebarEntry {
+                            account_id: account.id,
+                            project: project.clone(),
+                        })
                 })
                 .collect()
         };
-        let items: Vec<&str> = names.iter().map(String::as_str).collect();
-        store.splice(0, store.n_items(), &items);
-        let count = names.len();
+        let count = entries.len();
+        let objects: Vec<glib::BoxedAnyObject> =
+            entries.into_iter().map(glib::BoxedAnyObject::new).collect();
+        store.splice(0, store.n_items(), &objects);
         imp.content_placeholder
             .set_description(Some(&crate::i18n::format(
                 &gettext("{count} projects loaded. Pick one to open it."),

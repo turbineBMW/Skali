@@ -10,6 +10,7 @@ pub mod db;
 pub mod error;
 pub mod models;
 pub mod omarchy;
+pub mod richtext;
 pub mod secrets;
 
 /// What Basecamp sees in the `User-Agent` header, which it requires: the
