@@ -1,0 +1,45 @@
+using Gtk 4.0;
+using Adw 1;
+
+template $CampfePreferencesDialog: Adw.PreferencesDialog {
+  title: _("Preferences");
+  content-width: 560;
+
+  Adw.PreferencesPage {
+    Adw.PreferencesGroup accounts_group {
+      title: _("Accounts");
+      description: _("Every Basecamp account you are signed in to.");
+
+      [header-suffix]
+      Gtk.Button add_account_button {
+        valign: center;
+        tooltip-text: _("Sign in to another account");
+
+        child: Adw.ButtonContent {
+          icon-name: "list-add-symbolic";
+          label: _("Add");
+        };
+
+        styles ["flat"]
+      }
+    }
+
+    Adw.PreferencesGroup {
+      title: _("Appearance");
+
+      Adw.SwitchRow follow_omarchy_row {
+        title: _("Follow the Omarchy theme");
+        subtitle: _("Take the current theme's colours and light or dark style. Elsewhere this does nothing.");
+      }
+    }
+
+    Adw.PreferencesGroup {
+      title: _("Notifications");
+
+      Adw.SwitchRow notifications_row {
+        title: _("Notify about new activity");
+        subtitle: _("A desktop notification when Hey! has something new and the window isn't in front.");
+      }
+    }
+  }
+}

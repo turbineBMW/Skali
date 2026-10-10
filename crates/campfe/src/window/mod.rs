@@ -68,8 +68,9 @@ pub struct State {
     pub live_chats: HashMap<i64, std::rc::Weak<crate::pages::chat::ChatView>>,
     /// The message pages open now, by message id, for comments arriving live.
     pub live_messages: HashMap<i64, live::LiveMessage>,
-    /// Accounts whose live feed is running.
-    pub feeds: std::collections::HashSet<i64>,
+    /// The live feed's drain loop per account; aborting it drops the
+    /// channel, which ends the stream.
+    pub feeds: HashMap<i64, glib::JoinHandle<()>>,
     /// A sign-in waiting for the browser to come back.
     pub sign_in: Option<sign_in::PendingSignIn>,
 }
@@ -319,6 +320,56 @@ impl CampfeWindow {
                 ),
             );
         }
+    }
+
+    /// Forget an account: its tokens (when no other account shares the
+    /// identity), its cache, its feed, its pages.
+    pub fn sign_out(&self, account_id: i64) {
+        let (identity_id, shares_identity) = {
+            let mut state = self.state_mut();
+            let Some(account) = state.accounts.remove(&account_id) else {
+                return;
+            };
+            state.clients.remove(&account_id);
+            state.projects.remove(&account_id);
+            state.unread_counts.remove(&account_id);
+            if let Some(feed) = state.feeds.remove(&account_id) {
+                feed.abort();
+            }
+            let shares = state
+                .accounts
+                .values()
+                .any(|a| a.identity_id == account.identity_id);
+            if !shares {
+                state.tokens.remove(&account.identity_id);
+            }
+            (account.identity_id, shares)
+        };
+        if let Err(error) = self.db().borrow().remove_account(account_id) {
+            self.report("could not remove the account", &error);
+        }
+        if !shares_identity {
+            rt::run(
+                async move { campfe_core::secrets::clear_tokens(identity_id).await },
+                glib::clone!(
+                    #[weak(rename_to = window)]
+                    self,
+                    move |result| {
+                        if let Err(error) = result {
+                            window.report("could not clear the keyring", &error);
+                        }
+                    }
+                ),
+            );
+        }
+        self.imp().content_nav.pop_to_tag("home");
+        if self.state().accounts.is_empty() {
+            self.imp()
+                .main_stack
+                .set_visible_child_name(PAGE_NO_ACCOUNT);
+        }
+        self.rebuild_sidebar();
+        self.toast(&gettext("Signed out."));
     }
 
     /// A desktop notification for what's new in Hey!, opening it when clicked.

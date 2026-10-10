@@ -39,7 +39,7 @@ impl CampfeWindow {
 
     /// Start the live stream and the poll timer for an account, once.
     pub fn start_feed(&self, account_id: i64) {
-        if !self.state_mut().feeds.insert(account_id) {
+        if self.state().feeds.contains_key(&account_id) {
             return;
         }
         let Some(client) = self.client_for(account_id) else {
@@ -50,7 +50,7 @@ impl CampfeWindow {
             let client = client.clone();
             async move { feed::run_stream(client, feed::LIVE_TYPES, tx).await }
         });
-        glib::spawn_future_local(glib::clone!(
+        let drain = glib::spawn_future_local(glib::clone!(
             #[weak(rename_to = window)]
             self,
             async move {
@@ -71,6 +71,7 @@ impl CampfeWindow {
                 }
             }
         ));
+        self.state_mut().feeds.insert(account_id, drain);
         self.poll_feed(account_id);
         glib::timeout_add_local(
             POLL_EVERY,
@@ -80,6 +81,9 @@ impl CampfeWindow {
                 #[upgrade_or]
                 glib::ControlFlow::Break,
                 move || {
+                    if !window.state().feeds.contains_key(&account_id) {
+                        return glib::ControlFlow::Break;
+                    }
                     window.poll_feed(account_id);
                     glib::ControlFlow::Continue
                 }

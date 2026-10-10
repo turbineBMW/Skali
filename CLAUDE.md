@@ -70,6 +70,7 @@ crates/campfe/src/         the GTK layer
   pages/       one module per page kind: project, chat (ChatView: paging, composer, live
                lines), messages (board list; MessagePage: WebKit document of body + comments,
                images inlined as data: URIs), todos, hey, pings, assignments
+  dialogs/     preferences.rs (accounts with sign-out, theme and notification switches)
   widgets/     richtext_view.rs: the WebKit view (JS off, CSP, links to the browser, dark-mode
                adapted);  avatars.rs  avatar fetch + disk cache
   ui/*.blp     Blueprint templates; the Rust attribute names must match the ids

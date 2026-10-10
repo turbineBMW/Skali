@@ -2,6 +2,7 @@
 //! window, the app-level actions, and the `--hidden` background start.
 
 use crate::config::{APP_ID, RESOURCE_PATH, VERSION};
+use crate::dialogs::preferences::PreferencesDialog;
 use crate::i18n::gettext;
 use crate::omarchy::OmarchyTheme;
 use crate::settings;
@@ -158,6 +159,14 @@ impl CampfeApplication {
         let quit = gio::ActionEntry::builder("quit")
             .activate(|app: &Self, _, _| app.quit())
             .build();
+        let preferences = gio::ActionEntry::builder("preferences")
+            .activate(|app: &Self, _, _| {
+                app.activate();
+                if let Some(window) = app.main_window() {
+                    PreferencesDialog::new(&app.settings(), &window).present(Some(&window));
+                }
+            })
+            .build();
         // Reachable from outside (`gapplication action <id> sign-in`), which
         // the window's own action isn't.
         let sign_in = gio::ActionEntry::builder("sign-in")
@@ -180,10 +189,11 @@ impl CampfeApplication {
                 }
             })
             .build();
-        self.add_action_entries([about, quit, sign_in, open_hey]);
+        self.add_action_entries([about, quit, preferences, sign_in, open_hey]);
 
         for (name, accels) in [
             ("app.quit", &["<control>q"][..]),
+            ("app.preferences", &["<control>comma"]),
             ("win.sign-in", &["<control>l"]),
             ("win.refresh", &["F5"]),
         ] {

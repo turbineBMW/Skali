@@ -4,6 +4,7 @@ mod accent;
 mod application;
 mod avatars;
 mod config;
+mod dialogs;
 mod i18n;
 mod omarchy;
 mod pages;
