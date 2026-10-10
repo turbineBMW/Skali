@@ -2,6 +2,7 @@
 //! tools and their content on the right. One class, one `impl` block per
 //! concern across the files of this module.
 
+mod live;
 mod navigate;
 mod sign_in;
 
@@ -63,6 +64,12 @@ pub struct State {
     pub projects: HashMap<i64, Vec<Project>>,
     /// Hey!'s unread count per account, for the sidebar badge.
     pub unread_counts: HashMap<i64, usize>,
+    /// The chat pages open now, by chat id, for lines arriving live.
+    pub live_chats: HashMap<i64, std::rc::Weak<crate::pages::chat::ChatView>>,
+    /// The message pages open now, by message id, for comments arriving live.
+    pub live_messages: HashMap<i64, live::LiveMessage>,
+    /// Accounts whose live feed is running.
+    pub feeds: std::collections::HashSet<i64>,
     /// A sign-in waiting for the browser to come back.
     pub sign_in: Option<sign_in::PendingSignIn>,
 }
@@ -99,6 +106,8 @@ mod imp {
         pub state: RefCell<State>,
         /// `SidebarEntry`s, in sidebar order.
         pub sidebar_store: OnceCell<gio::ListStore>,
+        /// Accounts with a Hey! recount waiting out its delay.
+        pub recount_pending: RefCell<std::collections::HashSet<i64>>,
     }
 
     #[glib::object_subclass]
@@ -344,6 +353,7 @@ impl CampfeWindow {
         for id in account_ids {
             self.fetch_projects(id);
             self.fetch_unread_count(id);
+            self.start_feed(id);
         }
     }
 

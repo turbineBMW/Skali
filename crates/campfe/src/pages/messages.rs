@@ -138,6 +138,7 @@ pub fn message_page(
         .build();
     comments_box.append(&comments_heading);
     column.append(&comments_box);
+    window.watch_message(message.recording.id, &comments_box, &comments_heading);
     column.append(&comment_composer(
         window,
         client.clone(),
@@ -217,6 +218,24 @@ fn attachment_row(filename: &str, url: &str) -> gtk::LinkButton {
         .uri(url)
         .halign(gtk::Align::Start)
         .build()
+}
+
+/// A comment that arrived live, under the others, unless it's there already.
+pub fn append_live_comment(comments_box: &gtk::Box, heading: &gtk::Label, comment: &Comment) {
+    let mut child = comments_box.first_child();
+    while let Some(widget) = child {
+        if widget.widget_name() == comment.recording.id.to_string() {
+            return;
+        }
+        child = widget.next_sibling();
+    }
+    comments_box.append(&comment_row(comment));
+    let count = comments_box.observe_children().n_items().saturating_sub(1);
+    heading.set_label(&count_label(
+        i64::from(count),
+        &gettext("comment"),
+        &gettext("comments"),
+    ));
 }
 
 fn comment_row(comment: &Comment) -> gtk::Box {

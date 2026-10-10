@@ -8,6 +8,7 @@ pub mod auth;
 pub mod darkmode;
 pub mod db;
 pub mod error;
+pub mod feed;
 pub mod models;
 pub mod omarchy;
 pub mod richtext;

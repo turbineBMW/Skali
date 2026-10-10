@@ -13,14 +13,15 @@ use campfe_core::models::ChatLine;
 use campfe_core::richtext;
 use gtk::glib;
 use std::cell::{Cell, RefCell};
+use std::collections::HashSet;
 use std::rc::Rc;
 
 /// How close to the top (in pixels) asks for the older page.
 const SCROLLBACK_THRESHOLD: f64 = 120.0;
 
-/// What the page remembers between fetches, shared by the scroll handler
-/// and the fetch callbacks.
-struct ChatView {
+/// What the page remembers between fetches, shared by the scroll handler,
+/// the fetch callbacks and the live feed.
+pub struct ChatView {
     window: glib::WeakRef<CampfeWindow>,
     client: Client,
     title: String,
@@ -36,6 +37,9 @@ struct ChatView {
     /// The creator and time of the newest line, so a posted line joins
     /// its run.
     newest: RefCell<Option<(i64, chrono::DateTime<chrono::Utc>)>>,
+    /// Every line on screen, so a live wake-up for one we posted (or
+    /// already received) is dropped.
+    line_ids: RefCell<HashSet<i64>>,
 }
 
 impl ChatView {
@@ -83,8 +87,29 @@ impl ChatView {
         );
     }
 
-    /// A new line at the bottom: ours just posted, or (later) one arriving live.
+    pub fn chat_id(&self) -> i64 {
+        self.chat_id
+    }
+
+    /// A line that just arrived over the feed. Dropped if it's already
+    /// shown (we posted it, or the feed repeated itself).
+    pub fn append_live(&self, line: &ChatLine) {
+        if self.line_ids.borrow().contains(&line.recording.id) {
+            return;
+        }
+        let adjustment = self.scroller.vadjustment();
+        let at_bottom = adjustment.value() + adjustment.page_size() >= adjustment.upper() - 40.0;
+        self.append_line(line);
+        if at_bottom {
+            glib::idle_add_local_once(move || {
+                adjustment.set_value(adjustment.upper() - adjustment.page_size());
+            });
+        }
+    }
+
+    /// A new line at the bottom: ours just posted, or one arriving live.
     fn append_line(&self, line: &ChatLine) {
+        self.line_ids.borrow_mut().insert(line.recording.id);
         let previous = *self.newest.borrow();
         self.lines_box
             .append(&line_row(line, joins(previous, line)));
@@ -130,6 +155,9 @@ impl ChatView {
                                 });
                             }
                             view.shown.set(view.shown.get() + page.items.len());
+                            view.line_ids
+                                .borrow_mut()
+                                .extend(page.items.iter().map(|line| line.recording.id));
                             prepend_lines(&view.lines_box, page.items);
                             view.stack.set_visible_child_name("lines");
                             // Once laid out: the first page starts at the
@@ -212,7 +240,9 @@ pub fn page(
         shown: Cell::new(0),
         chat_id,
         newest: RefCell::new(None),
+        line_ids: RefCell::new(HashSet::new()),
     });
+    window.watch_chat(&view);
     view.load_older();
 
     // The composer, along the bottom.
