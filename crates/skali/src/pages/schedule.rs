@@ -319,6 +319,7 @@ pub fn entry_page(
             content: details + &entry.description,
             attachments: entry.description_attachments.clone(),
             comments_count: entry.recording.comments_count,
+            boosts_count: entry.recording.boosts_count,
             extra_html: String::new(),
         },
     )

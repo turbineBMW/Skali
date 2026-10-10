@@ -67,6 +67,9 @@ pub struct State {
     pub projects: HashMap<i64, Vec<Project>>,
     /// Hey!'s unread count per account, for the sidebar badge.
     pub unread_counts: HashMap<i64, usize>,
+    /// Your person id in each account (not the Launchpad identity's), to
+    /// tell your boosts from others'.
+    pub me: HashMap<i64, i64>,
     /// The chat pages open now, by chat id, for lines arriving live.
     pub live_chats: HashMap<i64, std::rc::Weak<crate::pages::chat::ChatView>>,
     /// The message pages open now, by message id, for comments arriving live.
@@ -460,10 +463,42 @@ impl SkaliWindow {
             self.refresh_tokens(identity_id, tokens);
         }
         for id in account_ids {
+            self.fetch_me(id);
             self.fetch_projects(id);
             self.fetch_unread_count(id);
             self.start_feed(id);
         }
+    }
+
+    /// Who you are in this account.
+    fn fetch_me(&self, account_id: i64) {
+        let Some(client) = self.state().clients.get(&account_id).cloned() else {
+            return;
+        };
+        rt::run(
+            async move {
+                client
+                    .get::<skali_core::models::Person>("/my/profile.json")
+                    .await
+            },
+            glib::clone!(
+                #[weak(rename_to = window)]
+                self,
+                move |result| match result {
+                    Ok(person) => {
+                        window.state_mut().me.insert(account_id, person.id);
+                    }
+                    Err(error) => {
+                        tracing::warn!("could not load your profile in {account_id}: {error}")
+                    }
+                }
+            ),
+        );
+    }
+
+    /// Your person id in this account, once known.
+    pub fn my_person_id(&self, account_id: i64) -> Option<i64> {
+        self.state().me.get(&account_id).copied()
     }
 
     /// Hey!'s unread count, for the sidebar badge.

@@ -78,8 +78,8 @@ crates/skali/src/          the GTK layer
                lines), messages (board list; MessagePage: WebKit document of body + comments,
                images inlined as data: URIs), todos, hey, pings, assignments
   dialogs/     preferences.rs (accounts with sign-out, theme and notification switches)
-  widgets/     richtext_view.rs: the WebKit view (JS off, CSP, links to the browser, dark-mode
-               adapted);  avatars.rs  avatar fetch + disk cache
+  widgets/     richtext_view.rs: the WebKit view (JS off, CSP, links to the browser, `skali:`
+               links -- links::PageAction -- to the page, dark-mode adapted);  avatars.rs  avatar fetch + disk cache
   ui/*.blp     Blueprint templates; the Rust attribute names must match the ids
   settings.rs  GSettings keys;  config.rs  ids, OAuth app;  i18n.rs  gettext + failure_message
   accent.rs / omarchy.rs  accent colour and Omarchy theme following (ported from Rustle)

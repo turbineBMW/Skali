@@ -205,7 +205,8 @@ Done:
 - Phase 4: chat lines, comments, new messages, file attachments on messages
   and comments; complete/reopen, add, assign and reschedule to-dos; move a
   card to any column or straight to Done (Basecamp's way of completing
-  one), tick card steps.
+  one), tick card steps; boosts on recordings and their comments (add with
+  a few emoji or words, take yours back), bookmark and subscribe toggles.
 - Phase 5: live feed (Action Cable + poll) for open chats and recordings;
   `--hidden` and autostart.
 - ETags: every JSON GET is conditional on the ETag it last saw (per account,
@@ -216,7 +217,7 @@ Done:
 Open, in rough order:
 - Local search (FTS5 over the cache, for offline), My Bookmarks, My Notes,
   Timeline.
-- Writes: boosts, subscribe/bookmark, to-do notes; dragging cards on the board.
+- Writes: boosts on chat lines, to-do notes; dragging cards on the board.
 - PAT paste fallback for sign-in.
 - Keyboard shortcuts, screenshots, README, AUR `skali-git` PKGBUILD.
 

@@ -23,6 +23,41 @@ pub enum AppLink {
     },
 }
 
+/// What a `skali:` link in a rendered document asks the page to do. The
+/// rich-text view has no JavaScript; its controls are these links.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PageAction {
+    /// `skali:boost/<recording>`: boost the body or a comment.
+    Boost(i64),
+    /// `skali:unboost/<recording>/<boost>`: take your boost back.
+    Unboost { recording: i64, boost: i64 },
+}
+
+impl PageAction {
+    pub fn parse(uri: &str) -> Option<Self> {
+        let rest = uri.strip_prefix("skali:")?;
+        let mut parts = rest.split('/');
+        let action = parts.next()?;
+        let mut id = || parts.next()?.parse::<i64>().ok();
+        let parsed = match action {
+            "boost" => Self::Boost(id()?),
+            "unboost" => Self::Unboost {
+                recording: id()?,
+                boost: id()?,
+            },
+            _ => return None,
+        };
+        parts.next().is_none().then_some(parsed)
+    }
+
+    pub fn uri(&self) -> String {
+        match self {
+            Self::Boost(recording) => format!("skali:boost/{recording}"),
+            Self::Unboost { recording, boost } => format!("skali:unboost/{recording}/{boost}"),
+        }
+    }
+}
+
 impl AppLink {
     /// `https://3.basecamp.com/<account>/buckets/<project>/<kind>/<id>`,
     /// with any `#fragment` or `?query`, or `None` for a link to anything
@@ -165,5 +200,22 @@ mod tests {
         assert_eq!(comment_of(&format!("{BASE}/messages/1")), None);
         assert_eq!(comment_of(&format!("{BASE}/messages/1#top")), None);
         assert_eq!(account_of("https://example.com/1000001/x"), None);
+    }
+
+    #[test]
+    fn page_actions_round_trip() {
+        for action in [
+            PageAction::Boost(5),
+            PageAction::Unboost {
+                recording: 5,
+                boost: 9,
+            },
+        ] {
+            assert_eq!(PageAction::parse(&action.uri()), Some(action));
+        }
+        assert_eq!(PageAction::parse("skali:boost/x"), None);
+        assert_eq!(PageAction::parse("skali:boost/5/6"), None);
+        assert_eq!(PageAction::parse("skali:unboost/5"), None);
+        assert_eq!(PageAction::parse("https://x/boost/5"), None);
     }
 }
