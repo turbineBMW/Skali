@@ -188,7 +188,32 @@ the recording `parent` chain.
   (Shift+J jump like the web app), i18n `pot`, screenshots, README,
   AUR `campfe-git` PKGBUILD.
 
-## 6. Development aids
+## 6. Status (2026-10-10)
+
+Done:
+- Phase 0, 1: scaffold; Launchpad sign-in with refresh, keyring, accounts.
+- Phase 2: projects, Campfire (scroll-back), message boards, to-dos, card
+  tables, Docs & Files, avatars, inline images, project cache.
+- Phase 3: Hey! (mark read on open, mark all read), Pings, My Assignments,
+  desktop notifications.
+- Phase 4: chat lines, comments, new messages, file attachments on messages
+  and comments; complete/reopen, add, assign and reschedule to-dos.
+- Phase 5: live feed (Action Cable + poll) for open chats and recordings;
+  `--hidden` and autostart.
+- Phase 6: Omarchy theme following, accent, `po/` template, Preferences.
+
+Open, in rough order:
+- Hey! rows open in the browser; open messages, cards, docs and chats in
+  Campfe instead.
+- Schedule page (the dock shows the tool; nothing opens it).
+- ETags: the `kv` table exists, requests don't send `If-None-Match` yet.
+- Search (`/search.json`, FTS5 over the cache), My Bookmarks, My Notes,
+  Timeline.
+- Writes: boosts, move/complete cards, subscribe/bookmark, to-do notes.
+- PAT paste fallback for sign-in.
+- Keyboard shortcuts, screenshots, README, AUR `campfe-git` PKGBUILD.
+
+## 7. Development aids
 
 - Install `basecamp-cli` from AUR and run `basecamp auth login` once. Then
   `claude mcp add basecamp -- basecamp mcp --read-only` gives the coding agent
@@ -197,19 +222,16 @@ the recording `parent` chain.
   shapes without writing code.
 - OpenAPI 3.1 spec for models: https://github.com/basecamp/basecamp-sdk/blob/main/openapi.json
 
-## 7. Open questions for Brandon
+## 8. Decided (were open questions)
 
-1. Launchpad integration registration (login-gated): you register, we embed
-   the id/secret like the official CLI does. Name "Campfe", redirect
-   `http://127.0.0.1:8976/callback`?
-2. SDK vs own client: plan says own thin client; revisit after Phase 1 spike.
-3. Commit style: Rustle's CLAUDE.md says "no AI/co-author trailers"; Bubo
-   includes them. Which for Campfe?
-4. Scope of MVP: is chat + message board + to-dos + Hey! enough for a first
-   usable build (that's what the Omarchy project actually uses), with card
-   tables and docs next?
+1. Launchpad integration: registered as "Campfe" with redirect
+   `http://127.0.0.1:8976/callback`; id/secret embedded in `config.rs`.
+2. SDK vs own client: own thin client.
+3. Commits: Conventional Commits; AI co-author trailers allowed.
+4. MVP: chat, message boards, to-dos, Hey! first; card tables and docs next
+   (both since done).
 
-## 8. Sources
+## 9. Sources
 
 - API: https://github.com/basecamp/bc-api (sections/authentication.md,
   event_feed.md, campfires.md, my_notifications.md, rich_text.md, search.md…)
