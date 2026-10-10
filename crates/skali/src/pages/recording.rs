@@ -250,73 +250,17 @@ impl RecordingPage {
             })
     }
 
-    /// Ask what to boost with: one of a few emoji, or up to 16 characters.
+    /// Ask what to boost with, then boost.
     fn boost_dialog(self: &Rc<Self>, recording: i64) {
         let Some(window) = self.window.upgrade() else {
             return;
         };
-        let dialog = adw::AlertDialog::builder()
-            .heading(gettext("Boost"))
-            .close_response("cancel")
-            .default_response("boost")
-            .build();
-        dialog.add_response("cancel", &gettext("Cancel"));
-        dialog.add_response("boost", &gettext("Boost"));
-        dialog.set_response_appearance("boost", adw::ResponseAppearance::Suggested);
-        dialog.set_response_enabled("boost", false);
-        let entry = gtk::Entry::builder()
-            .max_length(16)
-            .placeholder_text(gettext("Or type a few words"))
-            .activates_default(true)
-            .build();
-        entry.connect_changed(glib::clone!(
-            #[weak]
-            dialog,
-            move |entry| dialog.set_response_enabled("boost", !entry.text().trim().is_empty())
-        ));
-        let quick = gtk::Box::builder()
-            .spacing(6)
-            .halign(gtk::Align::Center)
-            .build();
-        for emoji in ["👍", "❤️", "🎉", "👏", "😂", "🙌"] {
-            let button = gtk::Button::builder()
-                .label(emoji)
-                .css_classes(["flat", "title-3"])
-                .build();
-            button.connect_clicked(glib::clone!(
-                #[strong(rename_to = page)]
-                self,
-                #[weak]
-                dialog,
-                move |_| {
-                    page.boost(recording, emoji.to_string());
-                    dialog.close();
-                }
-            ));
-            quick.append(&button);
-        }
-        let column = gtk::Box::new(gtk::Orientation::Vertical, 12);
-        column.append(&quick);
-        column.append(&entry);
-        dialog.set_extra_child(Some(&column));
-        dialog.connect_response(
-            Some("boost"),
-            glib::clone!(
-                #[strong(rename_to = page)]
-                self,
-                #[weak]
-                entry,
-                move |_, _| {
-                    let text = entry.text().trim().to_string();
-                    if !text.is_empty() {
-                        page.boost(recording, text);
-                    }
-                }
-            ),
-        );
-        dialog.present(Some(&window));
-        // Typing goes into the words; the emoji are a click (or Tab) away.
-        dialog.set_focus(Some(&entry));
+        let page = Rc::downgrade(self);
+        crate::widgets::boosts::ask(&window, move |content| {
+            if let Some(page) = page.upgrade() {
+                page.boost(recording, content);
+            }
+        });
     }
 
     fn boost(self: &Rc<Self>, recording: i64, content: String) {
