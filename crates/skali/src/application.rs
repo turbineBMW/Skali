@@ -212,6 +212,7 @@ impl SkaliApplication {
             ("win.go::assignments", &["<alt>3"]),
             ("win.go::bookmarks", &["<alt>4"]),
             ("win.go::timeline", &["<alt>5"]),
+            ("win.go::notes", &["<alt>6"]),
         ] {
             self.set_accels_for_action(name, accels);
         }

@@ -308,6 +308,22 @@ pub fn expand_attachments(html: &str, resolve: impl Fn(&str) -> Option<Expanded>
         .into_owned()
 }
 
+/// Whether `html` has more than paragraphs and line breaks: what editing it
+/// as plain text (`plain_text`, then `text_to_html`) would lose.
+pub fn has_formatting(html: &str) -> bool {
+    TAG.find_iter(html).any(|tag| {
+        let name: String = tag
+            .as_str()
+            .trim_start_matches('<')
+            .trim_start_matches('/')
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || *c == '-')
+            .collect::<String>()
+            .to_ascii_lowercase();
+        !matches!(name.as_str(), "div" | "p" | "br")
+    })
+}
+
 /// Typed text as Basecamp rich text: one `<div>` per paragraph, `<br>`
 /// for a line break inside one, everything escaped.
 pub fn text_to_html(text: &str) -> String {
@@ -428,5 +444,18 @@ mod tests {
             pango_markup(r#"<a href="https://a">open"#),
             "<a href=\"https://a\">open</a>"
         );
+    }
+
+    #[test]
+    fn formatting_is_anything_past_paragraphs() {
+        assert!(!has_formatting(""));
+        assert!(!has_formatting("<div>One<br>two</div><p>Three</p>"));
+        assert!(!has_formatting(&text_to_html("a & b\n\nc")));
+        assert!(has_formatting("<div><strong>Bold</strong></div>"));
+        assert!(has_formatting(r#"<div><a href="https://x">link</a></div>"#));
+        assert!(has_formatting("<ul><li>x</li></ul>"));
+        assert!(has_formatting(
+            r#"<bc-attachment sgid="s"></bc-attachment>"#
+        ));
     }
 }

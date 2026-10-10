@@ -180,6 +180,7 @@ fn account_of(entry: &SidebarEntry) -> Option<i64> {
         | SidebarEntry::Assignments { account_id }
         | SidebarEntry::Bookmarks { account_id }
         | SidebarEntry::Timeline { account_id }
+        | SidebarEntry::Notes { account_id }
         | SidebarEntry::Search { account_id }
         | SidebarEntry::Project { account_id, .. } => Some(*account_id),
     }

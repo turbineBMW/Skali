@@ -9,6 +9,7 @@ pub mod chat;
 pub mod docs;
 pub mod hey;
 pub mod messages;
+pub mod notes;
 pub mod pings;
 pub mod project;
 pub mod recording;

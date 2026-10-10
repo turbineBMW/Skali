@@ -48,6 +48,9 @@ pub enum SidebarEntry {
     Timeline {
         account_id: i64,
     },
+    Notes {
+        account_id: i64,
+    },
     Search {
         account_id: i64,
     },
@@ -246,6 +249,7 @@ impl SkaliWindow {
                     "assignments" => SidebarEntry::Assignments { account_id },
                     "bookmarks" => SidebarEntry::Bookmarks { account_id },
                     "timeline" => SidebarEntry::Timeline { account_id },
+                    "notes" => SidebarEntry::Notes { account_id },
                     _ => return,
                 };
                 window.open_entry(entry);
@@ -300,6 +304,7 @@ impl SkaliWindow {
             SidebarEntry::Assignments { account_id } => self.open_assignments(account_id),
             SidebarEntry::Bookmarks { account_id } => self.open_bookmarks(account_id),
             SidebarEntry::Timeline { account_id } => self.open_timeline(account_id),
+            SidebarEntry::Notes { account_id } => self.open_notes(account_id),
             SidebarEntry::Search { account_id } => self.open_search(account_id, ""),
             SidebarEntry::Header(_) => {}
             SidebarEntry::Project {
@@ -340,6 +345,7 @@ impl SkaliWindow {
             entries.push(SidebarEntry::Assignments { account_id });
             entries.push(SidebarEntry::Bookmarks { account_id });
             entries.push(SidebarEntry::Timeline { account_id });
+            entries.push(SidebarEntry::Notes { account_id });
             entries.push(SidebarEntry::Search { account_id });
             entries.push(SidebarEntry::Header(if several {
                 crate::i18n::format(
@@ -676,14 +682,22 @@ impl SkaliWindow {
     }
 
     /// A developer hook: `SKALI_DEBUG_OPEN=<project id>[:<tool id>[:first]]`,
-    /// or `hey`, `pings`, `assignments`, `bookmarks`, `timeline` or `search[:<words>]`, or a web link (`https://...`) the
+    /// or `hey`, `pings`, `assignments`, `bookmarks`, `timeline`, `notes` or `search[:<words>]`, or a web link (`https://...`) the
     /// way Hey! opens one, opens that page as soon as the account's projects
     /// are listed, for a look without clicking through; `:first` goes on
-    /// into the tool's first item. Acted on once.
+    /// into the tool's first item. Acted on once, for the first account
+    /// whose projects arrive, or the one `SKALI_DEBUG_ACCOUNT=<id>` names.
     fn debug_open(&self, account_id: i64) {
         let Ok(target) = std::env::var("SKALI_DEBUG_OPEN") else {
             return;
         };
+        if let Some(wanted) = std::env::var("SKALI_DEBUG_ACCOUNT")
+            .ok()
+            .and_then(|id| id.parse::<i64>().ok())
+            && wanted != account_id
+        {
+            return;
+        }
         match target.as_str() {
             search if search == "search" || search.starts_with("search:") => {
                 // SAFETY: the main thread, with no other thread reading the environment.
@@ -703,7 +717,7 @@ impl SkaliWindow {
                 }
                 return;
             }
-            "hey" | "pings" | "assignments" | "bookmarks" | "timeline" => {
+            "hey" | "pings" | "assignments" | "bookmarks" | "timeline" | "notes" => {
                 // SAFETY: the main thread, with no other thread reading the environment.
                 unsafe { std::env::remove_var("SKALI_DEBUG_OPEN") };
                 match target.as_str() {
@@ -711,6 +725,7 @@ impl SkaliWindow {
                     "pings" => self.open_pings(account_id),
                     "bookmarks" => self.open_bookmarks(account_id),
                     "timeline" => self.open_timeline(account_id),
+                    "notes" => self.open_notes(account_id),
                     _ => self.open_assignments(account_id),
                 }
                 return;
@@ -838,6 +853,7 @@ pub fn entry_label(entry: &SidebarEntry) -> Option<(String, &'static str, usize)
         }
         SidebarEntry::Bookmarks { .. } => (gettext("My Bookmarks"), "starred-symbolic", 0),
         SidebarEntry::Timeline { .. } => (gettext("Timeline"), "document-open-recent-symbolic", 0),
+        SidebarEntry::Notes { .. } => (gettext("My Notes"), "document-edit-symbolic", 0),
         SidebarEntry::Search { .. } => (gettext("Search"), "system-search-symbolic", 0),
         SidebarEntry::Project { project, .. } => (project.name.clone(), "", 0),
     })

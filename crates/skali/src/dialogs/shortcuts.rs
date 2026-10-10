@@ -33,6 +33,7 @@ pub fn dialog() -> adw::ShortcutsDialog {
             (gettext("My Assignments"), "<alt>3"),
             (gettext("My Bookmarks"), "<alt>4"),
             (gettext("Timeline"), "<alt>5"),
+            (gettext("My Notes"), "<alt>6"),
         ],
     ));
     dialog.add(section(

@@ -25,9 +25,10 @@ sqlite is bundled by rusqlite; TLS is rustls. Edition 2024, MSRV 1.88.
 always has debug. To exercise the app without touching real data: `XDG_DATA_HOME=<dir> cargo run`.
 
 Dev hooks: `skali api [GET|POST|PUT|DELETE] <path> [json]` makes one raw call with the stored
-sign-in and prints the body (writes obey the guard below). `SKALI_DEBUG_OPEN=<project>[:<tool>[:first]]`
-or `=hey|pings|assignments|bookmarks|timeline|search[:<words>]`, or `=<app_url>` (routed as a Hey! row is) opens
-that page at launch. The sandbox project and its tool ids are in `CLAUDE.local.md`
+sign-in and prints the body (writes obey the guard below); `SKALI_API_ACCOUNT=<id>` picks the
+account, else the first. `SKALI_DEBUG_OPEN=<project>[:<tool>[:first]]`
+or `=hey|pings|assignments|bookmarks|timeline|notes|search[:<words>]`, or `=<app_url>` (routed as a Hey! row is) opens
+that page at launch (for the account `SKALI_DEBUG_ACCOUNT=<id>` names, with several). The sandbox project and its tool ids are in `CLAUDE.local.md`
 (untracked). For a screenshot on Hyprland:
 `hyprctl clients -j` for the window geometry, `grim -g`; `wtype` types into the focused widget.
 Only text, Tab and Return get through `wtype` here (modifiers, BackSpace and Escape don't), and
