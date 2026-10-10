@@ -216,6 +216,33 @@ mod tests {
     }
 
     #[test]
+    fn todo_update_keeps_what_the_editor_leaves_alone() {
+        let json = r#"{"id": 9, "content": "Old", "description": "<div>notes</div>",
+            "starts_on": "2026-10-01", "due_on": "2026-10-05",
+            "assignees": [{"id": 1, "name": "A"}],
+            "completion_subscribers": [{"id": 2, "name": "B"}, {"id": 3, "name": "C"}]}"#;
+        let todo: Todo = serde_json::from_str(json).unwrap();
+        let date = |s: &str| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap();
+
+        let body = todo.update_body("New", &[1], Some(date("2026-10-08")));
+        assert_eq!(body["content"], "New");
+        assert_eq!(body["description"], "<div>notes</div>");
+        assert_eq!(body["completion_subscriber_ids"], serde_json::json!([2, 3]));
+        assert_eq!(body["starts_on"], "2026-10-01");
+        assert_eq!(body["due_on"], "2026-10-08");
+        assert_eq!(body["notify"], false);
+
+        // Due before the start, or no due date: the start goes.
+        let body = todo.update_body("New", &[1, 4], Some(date("2026-09-30")));
+        assert!(body["starts_on"].is_null());
+        assert_eq!(body["notify"], true);
+        let body = todo.update_body("New", &[], None);
+        assert!(body["starts_on"].is_null());
+        assert!(body["due_on"].is_null());
+        assert_eq!(body["assignee_ids"], serde_json::json!([]));
+    }
+
+    #[test]
     fn nulls_read_as_empty() {
         let json = r#"{"identity": {"id": 1, "first_name": null, "last_name": "W", "email_address": null},
             "accounts": [{"id": 2, "name": null, "product": "bc3", "href": "h", "app_href": null}]}"#;
@@ -463,9 +490,45 @@ pub struct Todo {
     #[serde(default)]
     pub assignees: Vec<Person>,
     #[serde(default)]
+    pub completion_subscribers: Vec<Person>,
+    #[serde(default)]
     pub subtasks_count: i64,
     #[serde(default)]
     pub subtasks_completed_count: i64,
+}
+
+impl Todo {
+    /// The body of `PUT /todos/<id>.json` changing what the editor edits.
+    /// Basecamp clears whatever an update leaves out, so everything else
+    /// is sent as it is; a start date the new due date would leave after
+    /// it (or without one) goes. Assignees who weren't before are notified.
+    pub fn update_body(
+        &self,
+        content: &str,
+        assignee_ids: &[i64],
+        due_on: Option<chrono::NaiveDate>,
+    ) -> serde_json::Value {
+        let starts_on = match (self.starts_on, due_on) {
+            (Some(start), Some(due)) if start <= due => Some(start),
+            _ => None,
+        };
+        let notify = assignee_ids
+            .iter()
+            .any(|id| !self.assignees.iter().any(|p| p.id == *id));
+        serde_json::json!({
+            "content": content,
+            "description": self.description,
+            "assignee_ids": assignee_ids,
+            "completion_subscriber_ids": self
+                .completion_subscribers
+                .iter()
+                .map(|p| p.id)
+                .collect::<Vec<_>>(),
+            "due_on": due_on,
+            "starts_on": starts_on,
+            "notify": notify,
+        })
+    }
 }
 
 /// One entry of Hey!: something unread, or read, for the signed-in person.

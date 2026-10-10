@@ -1,6 +1,7 @@
 //! To-dos: the project's lists, each opening to its to-dos.
 
-use super::{avatar, shell, time_label};
+use super::{avatar, shell, shell_with_header, time_label};
+use crate::dialogs::todo_editor::{self, Target};
 use crate::i18n::gettext;
 use crate::rt;
 use crate::window::CampfeWindow;
@@ -116,7 +117,8 @@ pub fn list_page(window: &CampfeWindow, client: Client, list: Todolist) -> adw::
         .css_classes(["boxed-list"])
         .visible(false)
         .build();
-    column.append(&super::loading());
+    let spinner = super::loading();
+    column.append(&spinner);
     column.append(&open);
     column.append(&done_heading);
     column.append(&done);
@@ -124,6 +126,7 @@ pub fn list_page(window: &CampfeWindow, client: Client, list: Todolist) -> adw::
     let path = format!("/todolists/{}/todos.json", list.recording.id);
     let completed_path = format!("/todolists/{}/todos.json?completed=true", list.recording.id);
     let client_for_rows = client.clone();
+    let client_for_add = client.clone();
     rt::run(
         async move {
             let open = client.get_all::<Todo>(&path).await?;
@@ -138,23 +141,19 @@ pub fn list_page(window: &CampfeWindow, client: Client, list: Todolist) -> adw::
             #[weak]
             column,
             #[weak]
+            spinner,
+            #[weak]
             open,
             #[weak]
             done,
             #[weak]
             done_heading,
             move |result| {
-                if let Some(spinner) = column.first_child().filter(|c| c.is::<adw::Spinner>()) {
-                    column.remove(&spinner);
-                }
+                column.remove(&spinner);
                 match result {
                     Ok((open_todos, completed)) => {
                         if open_todos.is_empty() {
-                            open.append(
-                                &adw::ActionRow::builder()
-                                    .title(gettext("Nothing to do"))
-                                    .build(),
-                            );
+                            open.append(&nothing_to_do());
                         }
                         for todo in &open_todos {
                             open.append(&todo_row(&window, &client, todo));
@@ -173,15 +172,103 @@ pub fn list_page(window: &CampfeWindow, client: Client, list: Todolist) -> adw::
         ),
     );
 
-    let page = shell(&list.name, &super::scrolled_clamp(&column, 800));
+    let (page, header) = shell_with_header(&list.name, &super::scrolled_clamp(&column, 800));
     page.set_tag(Some(&format!("todolist-{}", list.recording.id)));
+    let client = client_for_add;
+    let writes_allowed = client.writes_allowed();
+    let add = gtk::Button::builder()
+        .icon_name("list-add-symbolic")
+        .tooltip_text(if writes_allowed {
+            gettext("New to-do")
+        } else {
+            gettext("Writes to this account are turned off.")
+        })
+        .sensitive(writes_allowed)
+        .build();
+    header.pack_end(&add);
+    let list_id = list.recording.id;
+    let project_id = list.recording.bucket.id;
+    add.connect_clicked(glib::clone!(
+        #[weak]
+        window,
+        #[weak]
+        open,
+        #[strong]
+        client,
+        move |_| {
+            todo_editor::present(
+                &window,
+                client.clone(),
+                project_id,
+                Target::New { list_id },
+                glib::clone!(
+                    #[weak]
+                    window,
+                    #[weak]
+                    open,
+                    #[strong]
+                    client,
+                    move |todo| {
+                        if let Some(placeholder) = open
+                            .first_child()
+                            .filter(|row| row.widget_name() == "nothing-to-do")
+                        {
+                            open.remove(&placeholder);
+                        }
+                        open.append(&todo_row(&window, &client, &todo));
+                    }
+                ),
+            );
+        }
+    ));
     page
+}
+
+fn nothing_to_do() -> adw::ActionRow {
+    let row = adw::ActionRow::builder()
+        .title(gettext("Nothing to do"))
+        .build();
+    row.set_widget_name("nothing-to-do");
+    row
 }
 
 fn todo_row(window: &CampfeWindow, client: &Client, todo: &Todo) -> adw::ActionRow {
     let row = adw::ActionRow::builder()
         .title(glib::markup_escape_text(&todo.content))
+        .activatable(client.writes_allowed())
         .build();
+    // Activating it opens the editor; what's saved replaces the row.
+    let editing = todo.clone();
+    let editor_client = client.clone();
+    row.connect_activated(glib::clone!(
+        #[weak]
+        window,
+        move |row| {
+            let row = row.downgrade();
+            todo_editor::present(
+                &window,
+                editor_client.clone(),
+                editing.recording.bucket.id,
+                Target::Edit(Box::new(editing.clone())),
+                glib::clone!(
+                    #[weak]
+                    window,
+                    #[strong]
+                    editor_client,
+                    move |todo| {
+                        let Some(row) = row.upgrade() else {
+                            return;
+                        };
+                        let Some(list) = row.parent().and_downcast::<gtk::ListBox>() else {
+                            return;
+                        };
+                        list.insert(&todo_row(&window, &editor_client, &todo), row.index());
+                        list.remove(&row);
+                    }
+                ),
+            );
+        }
+    ));
     let check = gtk::CheckButton::builder()
         .active(todo.completed)
         .sensitive(client.writes_allowed())
