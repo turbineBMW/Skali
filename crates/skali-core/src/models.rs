@@ -224,7 +224,7 @@ mod tests {
         let todo: Todo = serde_json::from_str(json).unwrap();
         let date = |s: &str| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap();
 
-        let body = todo.update_body("New", &[1], Some(date("2026-10-08")));
+        let body = todo.update_body("New", None, &[1], Some(date("2026-10-08")));
         assert_eq!(body["content"], "New");
         assert_eq!(body["description"], "<div>notes</div>");
         assert_eq!(body["completion_subscriber_ids"], serde_json::json!([2, 3]));
@@ -233,13 +233,19 @@ mod tests {
         assert_eq!(body["notify"], false);
 
         // Due before the start, or no due date: the start goes.
-        let body = todo.update_body("New", &[1, 4], Some(date("2026-09-30")));
+        let body = todo.update_body("New", None, &[1, 4], Some(date("2026-09-30")));
         assert!(body["starts_on"].is_null());
         assert_eq!(body["notify"], true);
-        let body = todo.update_body("New", &[], None);
+        let body = todo.update_body("New", None, &[], None);
         assert!(body["starts_on"].is_null());
         assert!(body["due_on"].is_null());
         assert_eq!(body["assignee_ids"], serde_json::json!([]));
+
+        // New notes replace the old; an empty string clears them.
+        let body = todo.update_body("New", Some("<div>fresh</div>"), &[1], None);
+        assert_eq!(body["description"], "<div>fresh</div>");
+        let body = todo.update_body("New", Some(""), &[1], None);
+        assert_eq!(body["description"], "");
     }
 
     #[test]
@@ -569,9 +575,12 @@ impl Todo {
     /// Basecamp clears whatever an update leaves out, so everything else
     /// is sent as it is; a start date the new due date would leave after
     /// it (or without one) goes. Assignees who weren't before are notified.
+    /// `description` is new notes (rich text), or None to keep them as they
+    /// are, formatting and all.
     pub fn update_body(
         &self,
         content: &str,
+        description: Option<&str>,
         assignee_ids: &[i64],
         due_on: Option<chrono::NaiveDate>,
     ) -> serde_json::Value {
@@ -584,7 +593,7 @@ impl Todo {
             .any(|id| !self.assignees.iter().any(|p| p.id == *id));
         serde_json::json!({
             "content": content,
-            "description": self.description,
+            "description": description.unwrap_or(&self.description),
             "assignee_ids": assignee_ids,
             "completion_subscriber_ids": self
                 .completion_subscribers
