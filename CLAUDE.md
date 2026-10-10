@@ -27,8 +27,8 @@ always has debug. To exercise the app without touching real data: `XDG_DATA_HOME
 Dev hooks: `skali api [GET|POST|PUT|DELETE] <path> [json]` makes one raw call with the stored
 sign-in and prints the body (writes obey the guard below). `SKALI_DEBUG_OPEN=<project>[:<tool>[:first]]`
 or `=hey|pings|assignments|search[:<words>]`, or `=<app_url>` (routed as a Hey! row is) opens
-that page at launch. The sandbox project is 2000001 with Chat 10392702064, Message Board
-10392702077, To-dos 10392702093 and Schedule 10392772614. For a screenshot on Hyprland:
+that page at launch. The sandbox project and its tool ids are in `CLAUDE.local.md`
+(untracked). For a screenshot on Hyprland:
 `hyprctl clients -j` for the window geometry, `grim -g`; `wtype` types into the focused widget.
 Only text, Tab and Return get through `wtype` here (modifiers, BackSpace and Escape don't), and
 the portal file chooser takes none of it: `SKALI_DEBUG_ATTACH=<file>` starts every attachment
@@ -40,11 +40,12 @@ picker with that file instead. `hyprctl dispatch` takes Lua:
 at build or run time swap in another; its redirect URI must be exactly
 `http://127.0.0.1:8976/callback`.
 
-**Never write to a real project while developing.** Run with `SKALI_WRITE_ACCOUNTS=1000002` (the
-sandbox account "Sandbox", sandbox@example.com, a separate Launchpad identity): the API client then refuses POST/PUT/DELETE to every other account
-(`ApiError::ReadOnly`). The Example Co account (1000001) is real people's work; test posts go to
-the sandbox account only. The same goes for the `basecamp` CLI and the Basecamp MCP in this
-session: reads only against Example Co.
+**Never write to a real project while developing.** Run with `SKALI_WRITE_ACCOUNTS=<sandbox
+account id>` (a sandbox Basecamp account on a separate Launchpad identity; the id is in
+`CLAUDE.local.md`): the API client then refuses POST/PUT/DELETE to every other account
+(`ApiError::ReadOnly`). Any other account is real people's work; test posts go to the sandbox
+account only. The same goes for the `basecamp` CLI and the Basecamp MCP in this session: reads
+only against real accounts.
 
 ## Layout
 

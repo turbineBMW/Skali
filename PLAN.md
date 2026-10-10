@@ -3,7 +3,7 @@
 Plan written 2026-10-10 from a survey of Rustle, Bubo and Vmux, the Basecamp 5
 API docs (`basecamp/bc-api`), the official CLI (`basecamp/basecamp-cli`, Go),
 the official SDKs (`basecamp/basecamp-sdk`, incl. the `basecamp-sdk` Rust crate)
-and the Basecamp web app for account 1000001 ("Example Basecamp").
+and the Basecamp web app on a real account.
 
 ## 1. What we are building
 
