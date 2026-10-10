@@ -286,6 +286,14 @@ impl Client {
         Ok(())
     }
 
+    /// A POST with a body whose reply is empty (moving a card).
+    pub async fn post_no_reply<B: Serialize + ?Sized>(&self, path: &str, body: &B) -> Result<()> {
+        self.check_write()?;
+        self.send(|| self.http.post(self.url(path)).json(body))
+            .await?;
+        Ok(())
+    }
+
     /// A PUT with a body whose reply is empty (marking Hey! items read).
     pub async fn put_no_reply<B: Serialize + ?Sized>(&self, path: &str, body: &B) -> Result<()> {
         self.check_write()?;

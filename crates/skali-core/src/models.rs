@@ -678,6 +678,15 @@ pub struct CardTable {
     pub lists: Vec<CardColumn>,
 }
 
+impl CardTable {
+    /// The column a card is moved to when it's done (`Kanban::DoneColumn`).
+    pub fn done_column(&self) -> Option<&CardColumn> {
+        self.lists
+            .iter()
+            .find(|c| c.recording.kind == "Kanban::DoneColumn")
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Default)]
 pub struct CardColumn {
     #[serde(flatten)]
@@ -794,11 +803,13 @@ mod vault_tests {
     #[test]
     fn a_card_table_carries_its_columns() {
         let json = r#"{"id": 1, "title": "Card Table", "lists": [
-            {"id": 2, "title": "Triage", "color": null, "cards_count": 3, "cards_url": "u"},
-            {"id": 3, "title": "Done", "color": "green", "cards_count": 0}]}"#;
+            {"id": 2, "type": "Kanban::Triage", "title": "Triage", "color": null, "cards_count": 3, "cards_url": "u"},
+            {"id": 3, "type": "Kanban::DoneColumn", "title": "Done", "color": "green", "cards_count": 0}]}"#;
         let table: CardTable = serde_json::from_str(json).unwrap();
         assert_eq!(table.lists.len(), 2);
         assert_eq!(table.lists[1].color.as_deref(), Some("green"));
+        assert_eq!(table.done_column().map(|c| c.recording.id), Some(3));
+        assert!(CardTable::default().done_column().is_none());
     }
 
     #[test]
