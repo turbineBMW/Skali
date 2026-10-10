@@ -207,7 +207,7 @@ Done:
 - Phase 4: chat lines, comments, new messages, file attachments on messages
   and comments; complete/reopen, add, assign and reschedule to-dos; move a
   card to any column or straight to Done (Basecamp's way of completing
-  one), tick card steps; boosts on recordings and their comments (add with
+  one), tick card steps; to-do notes (sent only when changed); boosts on recordings and their comments (add with
   a few emoji or words, take yours back), on chat lines too, bookmark and
   subscribe toggles.
 - Phase 5: live feed (Action Cable + poll) for open chats and recordings;
@@ -217,14 +217,16 @@ Done:
   quiet feed poll gets 304s.
 - Phase 6: Omarchy theme following, accent, `po/` template, Preferences;
   keyboard shortcuts (Ctrl+J jump menu over every sidebar destination,
-  Alt+1-5 for the "me" pages, Ctrl+? lists them all); README and
-  screenshots (also in the metainfo).
+  Alt+1-6 for the "me" pages, Ctrl+? lists them all); README and
+  screenshots (also in the metainfo); `packaging/aur` PKGBUILD for
+  `skali-git` (install.sh stages with DESTDIR), not yet published.
 
 Open, in rough order:
-- Local search (FTS5 over the cache, for offline).
-- Writes: to-do notes; dragging cards on the board.
+- Dragging cards on the board.
 - PAT paste fallback for sign-in.
-- AUR `skali-git` PKGBUILD.
+- Local search (FTS5 over the cache, for offline): needs more than projects
+  cached first.
+- Publish `skali-git` to the AUR (the owner's AUR account).
 
 ## 7. Development aids
 

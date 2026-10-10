@@ -70,6 +70,11 @@ pub fn present(
     let notes = adw::PreferencesGroup::builder()
         .title(gettext("Notes"))
         .build();
+    if richtext::has_formatting(&old_notes) {
+        notes.set_description(Some(&gettext(
+            "These notes have formatting; changing them here keeps only the words.",
+        )));
+    }
     notes.add(
         &gtk::ScrolledWindow::builder()
             .child(&notes_text)
