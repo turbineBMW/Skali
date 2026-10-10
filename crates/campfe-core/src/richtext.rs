@@ -322,6 +322,12 @@ pub fn text_to_html(text: &str) -> String {
     paragraphs.join("")
 }
 
+/// A file uploaded to `/attachments.json`, placed in rich text by its
+/// `attachable_sgid`; Basecamp renders it on the way back.
+pub fn attachment_tag(sgid: &str) -> String {
+    format!("<bc-attachment sgid=\"{}\"></bc-attachment>", escape(sgid))
+}
+
 /// Escape for Pango markup (which is XML).
 pub fn escape(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
@@ -381,6 +387,14 @@ mod tests {
             "<div>One &lt;two&gt;<br>still one</div><div>Three &amp; four</div>"
         );
         assert_eq!(text_to_html("  \n"), "");
+    }
+
+    #[test]
+    fn attachment_tag_quotes_the_sgid() {
+        assert_eq!(
+            attachment_tag("BAh7==--1a\""),
+            r#"<bc-attachment sgid="BAh7==--1a&quot;"></bc-attachment>"#
+        );
     }
 
     #[test]

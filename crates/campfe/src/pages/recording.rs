@@ -7,6 +7,7 @@
 use super::{avatar, count_label, shell, time_label};
 use crate::i18n::gettext;
 use crate::rt;
+use crate::widgets::attachments::{self, AttachmentPicker};
 use crate::widgets::richtext_view::RichTextView;
 use crate::window::CampfeWindow;
 use adw::prelude::*;
@@ -295,27 +296,36 @@ fn comment_composer(page: &Rc<RecordingPage>) -> gtk::Box {
             gettext("Writes to this account are turned off.")
         })
         .build();
+    let picker = AttachmentPicker::new();
+    picker.set_sensitive(writes_allowed);
     post.connect_clicked(glib::clone!(
         #[strong]
         page,
         #[weak]
         text,
+        #[strong]
+        picker,
         move |button| {
             let buffer = text.buffer();
             let typed = buffer
                 .text(&buffer.start_iter(), &buffer.end_iter(), false)
                 .to_string();
             let html = richtext::text_to_html(&typed);
-            if html.is_empty() {
+            let files = picker.files();
+            if html.is_empty() && files.is_empty() {
                 return;
             }
             button.set_sensitive(false);
             text.set_sensitive(false);
+            picker.set_sensitive(false);
             let client = page.client.clone();
             let path = format!("/recordings/{}/comments.json", page.recording_id());
-            let body = serde_json::json!({ "content": html });
             rt::run(
-                async move { client.post::<Comment, _>(&path, &body).await },
+                async move {
+                    let tags = attachments::upload(client.clone(), files).await?;
+                    let body = serde_json::json!({ "content": html + &tags.concat() });
+                    client.post::<Comment, _>(&path, &body).await
+                },
                 glib::clone!(
                     #[strong]
                     page,
@@ -323,12 +333,16 @@ fn comment_composer(page: &Rc<RecordingPage>) -> gtk::Box {
                     text,
                     #[weak]
                     button,
+                    #[strong]
+                    picker,
                     move |result| {
                         button.set_sensitive(true);
                         text.set_sensitive(true);
+                        picker.set_sensitive(true);
                         match result {
                             Ok(comment) => {
                                 text.buffer().set_text("");
+                                picker.clear();
                                 page.add_comment(comment);
                             }
                             Err(error) => {
@@ -366,7 +380,13 @@ fn comment_composer(page: &Rc<RecordingPage>) -> gtk::Box {
             text.grab_focus();
         });
     }
+    let actions = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+    picker.widget().set_hexpand(true);
+    picker.widget().set_valign(gtk::Align::Center);
+    post.set_valign(gtk::Align::Center);
+    actions.append(picker.widget());
+    actions.append(&post);
     column.append(&frame);
-    column.append(&post);
+    column.append(&actions);
     column
 }

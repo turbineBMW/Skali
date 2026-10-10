@@ -304,6 +304,12 @@ pub struct Recording {
     pub boosts_count: i64,
 }
 
+/// The reply to an upload to `/attachments.json`.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Default)]
+pub struct UploadedAttachment {
+    pub attachable_sgid: String,
+}
+
 /// A file inside rich text, listed beside it (`content_attachments`).
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Default)]
 pub struct Attachment {

@@ -110,6 +110,22 @@ impl CampfeWindow {
             .push(&pages::messages::message_page(self, client, message));
     }
 
+    pub fn open_message_composer(
+        &self,
+        client: Client,
+        board_id: i64,
+        on_posted: Box<dyn Fn(&Message)>,
+    ) {
+        self.imp().content_nav.push(&pages::messages::compose_page(
+            self, client, board_id, on_posted,
+        ));
+    }
+
+    /// Close the page on top, back to the one under it.
+    pub fn pop_page(&self) {
+        self.imp().content_nav.pop();
+    }
+
     pub fn open_card(&self, client: Client, card: Card) {
         self.imp()
             .content_nav

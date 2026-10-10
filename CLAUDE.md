@@ -29,6 +29,10 @@ sign-in and prints the body (writes obey the guard below). `CAMPFE_DEBUG_OPEN=<p
 or `=hey|pings|assignments` opens that page at launch. The sandbox project is 2000001 with Chat
 10392702064, Message Board 10392702077 and To-dos 10392702093. For a screenshot on Hyprland:
 `hyprctl clients -j` for the window geometry, `grim -g`; `wtype` types into the focused widget.
+Only text, Tab and Return get through `wtype` here (modifiers, BackSpace and Escape don't), and
+the portal file chooser takes none of it: `CAMPFE_DEBUG_ATTACH=<file>` starts every attachment
+picker with that file instead. `hyprctl dispatch` takes Lua:
+`hyprctl dispatch 'hl.dsp.focus({ window = "class:io.github.turbinebmw.Campfe" })'`.
 
 **Sign-in uses Campfe's own Launchpad integration**, whose public client id/secret are in
 `config.rs` (as 37signals' CLI ships its own). `CAMPFE_OAUTH_CLIENT_ID` / `CAMPFE_OAUTH_CLIENT_SECRET`
