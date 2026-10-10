@@ -80,6 +80,9 @@ impl RecordingPage {
         {
             return;
         }
+        if let Some(window) = self.window.upgrade() {
+            window.keep_for_search(&self.client, std::slice::from_ref(&comment));
+        }
         self.fetch_images(&comment.content_attachments);
         self.comments.borrow_mut().push(comment);
         self.render();
@@ -439,6 +442,9 @@ pub fn recording_page_parts(
                 page,
                 move |result| match result {
                     Ok(comments) => {
+                        if let Some(window) = page.window.upgrade() {
+                            window.keep_for_search(&page.client, &comments);
+                        }
                         for comment in &comments {
                             page.fetch_images(&comment.content_attachments);
                             if comment.recording.boosts_count > 0 {

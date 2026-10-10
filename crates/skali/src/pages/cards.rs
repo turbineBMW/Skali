@@ -215,6 +215,9 @@ impl Board {
                 list,
                 move |result| match result {
                     Ok(cards) => {
+                        if let Some(window) = board.window.upgrade() {
+                            window.keep_for_search(&board.client, &cards);
+                        }
                         for card in cards {
                             list.append(&board.card_row(card));
                         }

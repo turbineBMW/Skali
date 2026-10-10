@@ -1,6 +1,9 @@
 //! Search: one account's Basecamp, as you type, optionally one kind of
 //! thing, best match or newest first. A result opens on Skali's page for
 //! it when there is one (a comment scrolled to), in the browser otherwise.
+//! "This computer" searches what Skali has kept of the pages it showed
+//! instead (`Database::search_recordings`), and turns itself on when
+//! Basecamp can't be reached.
 
 use super::{avatar, kind_label, shell, time_label};
 use crate::i18n::gettext;
@@ -27,6 +30,8 @@ struct SearchPage {
     entry: glib::WeakRef<gtk::SearchEntry>,
     kinds: glib::WeakRef<gtk::DropDown>,
     order: glib::WeakRef<gtk::DropDown>,
+    local: glib::WeakRef<gtk::ToggleButton>,
+    start: glib::WeakRef<adw::StatusPage>,
     stack: glib::WeakRef<gtk::Stack>,
     list: glib::WeakRef<gtk::ListBox>,
     more: glib::WeakRef<gtk::Button>,
@@ -49,10 +54,15 @@ pub fn page(window: &SkaliWindow, client: Client, query: &str) -> adw::Navigatio
     let kinds = gtk::DropDown::from_strings(&[&gettext("Everything")]);
     kinds.set_tooltip_text(Some(&gettext("What to search")));
     let order = gtk::DropDown::from_strings(&[&gettext("Best match"), &gettext("Newest first")]);
+    let local = gtk::ToggleButton::builder()
+        .icon_name("computer-symbolic")
+        .tooltip_text(gettext("Search only what Skali has kept on this computer"))
+        .build();
     let controls = gtk::Box::new(gtk::Orientation::Horizontal, 6);
     controls.append(&entry);
     controls.append(&kinds);
     controls.append(&order);
+    controls.append(&local);
     let controls = adw::Clamp::builder()
         .maximum_size(800)
         .tightening_threshold(600)
@@ -75,16 +85,9 @@ pub fn page(window: &SkaliWindow, client: Client, query: &str) -> adw::Navigatio
     let results = gtk::Box::new(gtk::Orientation::Vertical, 18);
     results.append(&list);
     results.append(&more);
+    let start = adw::StatusPage::builder().vexpand(true).build();
     let stack = gtk::Stack::builder().vexpand(true).build();
-    stack.add_named(
-        &adw::StatusPage::builder()
-            .icon_name("system-search-symbolic")
-            .title(gettext("Search Basecamp"))
-            .description(gettext("Messages, to-dos, chats, files and more."))
-            .vexpand(true)
-            .build(),
-        Some("start"),
-    );
+    stack.add_named(&start, Some("start"));
     stack.add_named(&super::loading(), Some("loading"));
     stack.add_named(&super::scrolled_clamp(&results, 800), Some("list"));
     stack.add_named(
@@ -102,6 +105,8 @@ pub fn page(window: &SkaliWindow, client: Client, query: &str) -> adw::Navigatio
         entry: entry.downgrade(),
         kinds: kinds.downgrade(),
         order: order.downgrade(),
+        local: local.downgrade(),
+        start: start.downgrade(),
         stack: stack.downgrade(),
         list: list.downgrade(),
         more: more.downgrade(),
@@ -120,6 +125,11 @@ pub fn page(window: &SkaliWindow, client: Client, query: &str) -> adw::Navigatio
         move |_| search.search()
     ));
     order.connect_selected_notify(glib::clone!(
+        #[strong]
+        search,
+        move |_| search.search()
+    ));
+    local.connect_toggled(glib::clone!(
         #[strong]
         search,
         move |_| search.search()
@@ -195,7 +205,22 @@ impl SearchPage {
         self.generation.set(generation);
         list.remove_all();
         more.set_visible(false);
+        more.set_sensitive(true);
         self.next.replace(None);
+        let local = self.local.upgrade().is_some_and(|local| local.is_active());
+        if let Some(start) = self.start.upgrade() {
+            if local {
+                start.set_icon_name(Some("computer-symbolic"));
+                start.set_title(&gettext("Search This Computer"));
+                start.set_description(Some(&gettext(
+                    "What Skali has shown you: chats, messages, comments, to-dos, cards and documents. Works without a connection.",
+                )));
+            } else {
+                start.set_icon_name(Some("system-search-symbolic"));
+                start.set_title(&gettext("Search Basecamp"));
+                start.set_description(Some(&gettext("Messages, to-dos, chats, files and more.")));
+            }
+        }
         let query = entry.text().trim().to_string();
         if query.chars().count() < MIN_QUERY {
             stack.set_visible_child_name("start");
@@ -207,7 +232,23 @@ impl SearchPage {
             .get(kinds.selected() as usize)
             .cloned()
             .flatten();
-        let path = search_path(&query, kind.as_deref(), order.selected() == 1);
+        let newest_first = order.selected() == 1;
+        if local {
+            let Some(window) = self.window.upgrade() else {
+                return;
+            };
+            let found = window.search_kept(&self.client, &query, kind.as_deref(), newest_first);
+            self.fetched(
+                generation,
+                found.map(|items| Page {
+                    items,
+                    next: None,
+                    total: None,
+                }),
+            );
+            return;
+        }
+        let path = search_path(&query, kind.as_deref(), newest_first);
         stack.set_visible_child_name("loading");
         self.fetch(path, generation);
     }
@@ -229,7 +270,12 @@ impl SearchPage {
             glib::clone!(
                 #[strong(rename_to = page)]
                 self,
-                move |result| page.fetched(generation, result)
+                move |result| {
+                    if let (Ok(found), Some(window)) = (&result, page.window.upgrade()) {
+                        window.keep_for_search(&page.client, &found.items);
+                    }
+                    page.fetched(generation, result)
+                }
             ),
         );
     }
@@ -249,6 +295,19 @@ impl SearchPage {
         more.set_sensitive(true);
         let page = match result {
             Ok(page) => page,
+            Err(error) if error.is_transient() && list.first_child().is_none() => {
+                // Offline, most likely: the same search, on this computer.
+                tracing::warn!("could not search Basecamp, searching locally: {error}");
+                if let Some(local) = self.local.upgrade()
+                    && !local.is_active()
+                {
+                    window.toast(&gettext(
+                        "Basecamp can't be reached. Searching this computer.",
+                    ));
+                    local.set_active(true);
+                }
+                return;
+            }
             Err(error) => {
                 window.report("could not search", &error);
                 if list.first_child().is_none() {

@@ -353,6 +353,83 @@ pub struct Recording {
     pub boosts_count: i64,
 }
 
+/// What the local search index keeps of a recording: its shared fields, and
+/// its words as plain text.
+pub trait Searchable {
+    fn recording(&self) -> &Recording;
+    fn search_text(&self) -> String;
+    /// Whether this copy is the whole recording. A partial one (a search
+    /// hit) is kept only when nothing fuller is.
+    fn is_whole(&self) -> bool {
+        true
+    }
+}
+
+/// Plain-text pieces, the empty ones left out, one per line.
+fn joined(parts: &[&str]) -> String {
+    parts
+        .iter()
+        .map(|part| part.trim())
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+macro_rules! searchable {
+    ($kind:ty, |$it:ident| $text:expr) => {
+        impl Searchable for $kind {
+            fn recording(&self) -> &Recording {
+                &self.recording
+            }
+            fn search_text(&self) -> String {
+                let $it = self;
+                $text
+            }
+        }
+    };
+}
+
+searchable!(ChatLine, |line| if line.is_rich_text() {
+    crate::richtext::plain_text(&line.content)
+} else {
+    line.content.clone()
+});
+searchable!(Message, |message| crate::richtext::plain_text(
+    &message.content
+));
+searchable!(Comment, |comment| crate::richtext::plain_text(
+    &comment.content
+));
+searchable!(Todolist, |list| crate::richtext::plain_text(
+    &list.description
+));
+searchable!(Todo, |todo| joined(&[
+    &todo.content,
+    &crate::richtext::plain_text(&todo.description)
+]));
+searchable!(Card, |card| crate::richtext::plain_text(&card.content));
+searchable!(Document, |doc| crate::richtext::plain_text(&doc.content));
+searchable!(Upload, |upload| joined(&[
+    &upload.filename,
+    &crate::richtext::plain_text(&upload.description)
+]));
+searchable!(ScheduleEntry, |entry| joined(&[
+    &entry.summary,
+    &crate::richtext::plain_text(&entry.description)
+]));
+
+impl Searchable for SearchResult {
+    fn recording(&self) -> &Recording {
+        &self.recording
+    }
+    fn search_text(&self) -> String {
+        self.plain_text_content.clone()
+    }
+    fn is_whole(&self) -> bool {
+        false
+    }
+}
+
 /// A boost: a few characters (often one emoji) someone left on a
 /// recording, from `/recordings/<id>/boosts.json`.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Default)]

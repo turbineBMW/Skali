@@ -45,6 +45,7 @@ pub fn set_page(
             list,
             move |result| match result {
                 Ok(lists) => {
+                    window.keep_for_search(&client_for_rows, &lists);
                     if lists.is_empty() {
                         stack.set_visible_child_name("empty");
                         return;
@@ -152,6 +153,8 @@ pub fn list_page(window: &SkaliWindow, client: Client, list: Todolist) -> adw::N
                 column.remove(&spinner);
                 match result {
                     Ok((open_todos, completed)) => {
+                        window.keep_for_search(&client, &open_todos);
+                        window.keep_for_search(&client, &completed);
                         if open_todos.is_empty() {
                             open.append(&nothing_to_do());
                         }
@@ -209,6 +212,7 @@ pub fn list_page(window: &SkaliWindow, client: Client, list: Todolist) -> adw::N
                     #[strong]
                     client,
                     move |todo| {
+                        window.keep_for_search(&client, std::slice::from_ref(&todo));
                         if let Some(placeholder) = open
                             .first_child()
                             .filter(|row| row.widget_name() == "nothing-to-do")
@@ -256,6 +260,7 @@ fn todo_row(window: &SkaliWindow, client: &Client, todo: &Todo) -> adw::ActionRo
                     #[strong]
                     editor_client,
                     move |todo| {
+                        window.keep_for_search(&editor_client, std::slice::from_ref(&todo));
                         let Some(row) = row.upgrade() else {
                             return;
                         };

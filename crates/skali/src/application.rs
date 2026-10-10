@@ -120,6 +120,11 @@ impl SkaliApplication {
         let path = data_dir.join("skali.db");
         let db = Database::open(&path)
             .unwrap_or_else(|error| panic!("could not open {}: {error}", path.display()));
+        match db.prune_index(skali_core::db::INDEX_LIMIT) {
+            Ok(0) => {}
+            Ok(dropped) => tracing::info!("dropped {dropped} old recordings from the search index"),
+            Err(error) => tracing::warn!("could not prune the search index: {error}"),
+        }
         let _ = self.imp().db.set(Rc::new(RefCell::new(db)));
         let _ = self.imp().settings.set(settings::load());
     }

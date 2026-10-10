@@ -112,6 +112,9 @@ impl ChatView {
 
     /// A new line at the bottom: ours just posted, or one arriving live.
     fn append_line(self: &Rc<Self>, line: &ChatLine) {
+        if let Some(window) = self.window.upgrade() {
+            window.keep_for_search(&self.client, std::slice::from_ref(line));
+        }
         self.line_ids.borrow_mut().insert(line.recording.id);
         let previous = *self.newest.borrow();
         self.lines_box
@@ -144,6 +147,9 @@ impl ChatView {
                     view.loading.set(false);
                     match result {
                         Ok(page) => {
+                            if let Some(window) = view.window.upgrade() {
+                                window.keep_for_search(&view.client, &page.items);
+                            }
                             *view.next.borrow_mut() = page.next;
                             let first_page = view.shown.get() == 0;
                             if first_page && page.items.is_empty() {
