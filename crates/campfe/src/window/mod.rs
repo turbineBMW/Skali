@@ -537,9 +537,7 @@ impl CampfeWindow {
             url if url.starts_with("https://") => {
                 // SAFETY: the main thread, with no other thread reading the environment.
                 unsafe { std::env::remove_var("CAMPFE_DEBUG_OPEN") };
-                if let Some(client) = self.client_for(account_id)
-                    && !self.open_app_url(client, url)
-                {
+                if !self.open_app_url(url) {
                     tracing::warn!("debug open: Campfe has no page for {url}");
                 }
                 return;

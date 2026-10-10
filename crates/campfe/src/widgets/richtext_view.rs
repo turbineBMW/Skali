@@ -1,9 +1,11 @@
 //! Basecamp's rich text in a WebKit view: the one way to show it as
 //! written, images and all. JavaScript is off, nothing is fetched from
-//! the network (images arrive as `data:` URIs), a link click goes to the
-//! browser, and in dark mode the document is adapted to the scheme.
+//! the network (images arrive as `data:` URIs), a link click opens a
+//! Basecamp item on Campfe's own page or goes to the browser, and in dark
+//! mode the document is adapted to the scheme.
 
 use crate::accent;
+use crate::window::CampfeWindow;
 use adw::prelude::*;
 use campfe_core::darkmode;
 use gtk::gdk;
@@ -46,9 +48,12 @@ impl RichTextView {
         &self.view
     }
 
-    /// Show `body`, already expanded (no `<bc-attachment>` left in it).
-    pub fn set_document(&self, body: &str) {
-        self.view.load_html(&document(body), None);
+    /// Show `body`, already expanded (no `<bc-attachment>` left in it),
+    /// scrolled to the element with the id `anchor` if there is one.
+    pub fn set_document(&self, body: &str, anchor: Option<&str>) {
+        // The document's address carries the fragment WebKit scrolls to.
+        let base = anchor.map(|anchor| format!("about:blank#{anchor}"));
+        self.view.load_html(&document(body), base.as_deref());
     }
 }
 
@@ -107,6 +112,7 @@ fn document(body: &str) -> String {
          .avatar, .initials {{ width: 32px; height: 32px; border-radius: 50%; flex: none; object-fit: cover; }}\
          .initials {{ display: inline-flex; align-items: center; justify-content: center; background: {accent}; color: white; font-weight: 600; }}\
          .comment .body {{ margin-left: 42px; }}\
+         .comment:target {{ background: {code_bg}; border-radius: 8px; padding: 8px; margin: 0 -8px 20px; }}\
          </style></head><body>{body}</body></html>",
         scheme = if is_dark() { "dark" } else { "light" },
     )
@@ -127,9 +133,9 @@ fn scheme_of(uri: &str) -> String {
     uri.split(':').next().unwrap_or("").to_lowercase()
 }
 
-/// The view renders one document and never navigates: a link click goes to
-/// the browser, anything else is refused. load_html's own document arrives
-/// as about:blank, or with no URI at all.
+/// The view renders one document and never navigates: a link click opens
+/// in Campfe or the browser, anything else is refused. load_html's own
+/// document arrives as about:blank (with the anchor), or with no URI.
 fn decide_policy(view: &webkit::WebView, decision: &webkit::PolicyDecision) -> bool {
     let Some((kind, uri)) = navigation_of(decision) else {
         return false;
@@ -146,6 +152,11 @@ fn decide_policy(view: &webkit::WebView, decision: &webkit::PolicyDecision) -> b
     decision.ignore();
     if !EXTERNAL_SCHEMES.contains(&scheme.as_str()) {
         tracing::warn!("blocked a rich-text link with scheme {scheme:?}");
+        return true;
+    }
+    if let Some(window) = view.root().and_downcast::<CampfeWindow>()
+        && window.open_app_url(&uri)
+    {
         return true;
     }
     let window = view.root().and_downcast::<gtk::Window>();

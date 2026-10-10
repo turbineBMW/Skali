@@ -37,6 +37,18 @@ impl CampfeWindow {
             .insert(page.recording_id(), Rc::downgrade(page));
     }
 
+    /// Scroll an open recording page to one of its comments.
+    pub fn focus_comment(&self, recording_id: i64, comment_id: i64) {
+        let page = self
+            .state()
+            .live_messages
+            .get(&recording_id)
+            .and_then(|page| page.upgrade());
+        if let Some(page) = page {
+            page.focus_comment(comment_id);
+        }
+    }
+
     /// Start the live stream and the poll timer for an account, once.
     pub fn start_feed(&self, account_id: i64) {
         if self.state().feeds.contains_key(&account_id) {

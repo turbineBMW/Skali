@@ -1,5 +1,6 @@
-//! Basecamp's web links (a recording's `app_url`, a Hey! entry's) read as
-//! the things Campfe can show itself. Anything else stays a web link.
+//! Basecamp's web links (a recording's `app_url`, a Hey! entry's, a link
+//! in rich text) read as the things Campfe can show itself. Anything else
+//! stays a web link.
 
 /// A recording Campfe has a page for, by its id. Ids are the same in the
 /// web app's paths and the API's flat routes (`/messages/<id>.json`).
@@ -19,13 +20,9 @@ pub enum AppLink {
 impl AppLink {
     /// `https://3.basecamp.com/<account>/buckets/<project>/<kind>/<id>`,
     /// with any `#fragment` or `?query`, or `None` for a link to anything
-    /// else (bulletins, onboarding, the schedule...).
+    /// else (bulletins, onboarding, the schedule, other sites...).
     pub fn parse(url: &str) -> Option<Self> {
-        let url = url.split(['#', '?']).next().unwrap_or(url);
-        let path = url
-            .split_once("://")
-            .map_or(url, |(_, rest)| rest.split_once('/').map_or("", |(_, p)| p));
-        let segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+        let segments = basecamp_path(url)?;
         let bucket = segments.iter().position(|s| *s == "buckets")?;
         let rest = segments.get(bucket + 2..)?;
         let id = |s: &str| s.split('@').next()?.parse::<i64>().ok();
@@ -40,6 +37,40 @@ impl AppLink {
             _ => None,
         }
     }
+
+    /// The recording the link opens on a page of its own, if it does.
+    pub fn recording_id(self) -> Option<i64> {
+        match self {
+            Self::Message(id) | Self::Card(id) | Self::Document(id) | Self::Upload(id) => Some(id),
+            Self::Chat(_) | Self::Todo(_) | Self::Todolist(_) => None,
+        }
+    }
+}
+
+/// The account a Basecamp web link belongs to: its path's first segment.
+pub fn account_of(url: &str) -> Option<i64> {
+    basecamp_path(url)?.first()?.parse().ok()
+}
+
+/// The comment a link points at: `...#__recording_<id>`.
+pub fn comment_of(url: &str) -> Option<i64> {
+    url.split_once('#')?
+        .1
+        .strip_prefix("__recording_")?
+        .parse()
+        .ok()
+}
+
+/// The path segments of an `https` link on a Basecamp web host, without
+/// any query or fragment.
+fn basecamp_path(url: &str) -> Option<Vec<&str>> {
+    let rest = url.strip_prefix("https://")?;
+    let rest = rest.split(['#', '?']).next().unwrap_or(rest);
+    let (host, path) = rest.split_once('/')?;
+    if host != "basecamp.com" && !host.ends_with(".basecamp.com") {
+        return None;
+    }
+    Some(path.split('/').filter(|s| !s.is_empty()).collect())
 }
 
 #[cfg(test)]
@@ -68,6 +99,11 @@ mod tests {
         assert_eq!(parse("uploads/2?x=1"), Some(AppLink::Upload(2)));
         assert_eq!(parse("todos/3"), Some(AppLink::Todo(3)));
         assert_eq!(parse("todolists/4"), Some(AppLink::Todolist(4)));
+        // The sandbox's links are on another Basecamp host.
+        assert_eq!(
+            AppLink::parse("https://app.basecamp.com/1000002/buckets/2000001/uploads/5"),
+            Some(AppLink::Upload(5))
+        );
     }
 
     #[test]
@@ -76,6 +112,9 @@ mod tests {
             "https://3.basecamp.com/1000001/bulletins/10387727160",
             "https://3.basecamp.com/1000002/onboarding/messages/9923661869",
             "https://3.basecampapi.com/1000001/my/boosts",
+            "https://example.com/1/buckets/2/messages/3",
+            "https://notbasecamp.com/1/buckets/2/messages/3",
+            "http://3.basecamp.com/1/buckets/2/messages/3",
             &format!("{BASE}/card_tables/10252036781"),
             &format!("{BASE}/schedules/1"),
             &format!("{BASE}/messages/not-a-number"),
@@ -83,5 +122,15 @@ mod tests {
         ] {
             assert_eq!(AppLink::parse(url), None, "{url}");
         }
+    }
+
+    #[test]
+    fn account_and_comment_come_from_the_link() {
+        let url = format!("{BASE}/messages/10310327010#__recording_10314180681");
+        assert_eq!(account_of(&url), Some(1000001));
+        assert_eq!(comment_of(&url), Some(10314180681));
+        assert_eq!(comment_of(&format!("{BASE}/messages/1")), None);
+        assert_eq!(comment_of(&format!("{BASE}/messages/1#top")), None);
+        assert_eq!(account_of("https://example.com/1000001/x"), None);
     }
 }

@@ -391,6 +391,13 @@ fn line_row(line: &ChatLine, same_run: bool) -> gtk::Widget {
         richtext::escape(&line.content)
     };
     body.set_markup(&markup);
+    // A link to a Basecamp item opens on Campfe's page for it.
+    body.connect_activate_link(
+        |label, uri| match label.root().and_downcast::<CampfeWindow>() {
+            Some(window) if window.open_app_url(uri) => glib::Propagation::Stop,
+            _ => glib::Propagation::Proceed,
+        },
+    );
     column.append(&body);
     row.append(&column);
     row.upcast()

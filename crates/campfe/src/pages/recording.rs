@@ -15,7 +15,7 @@ use campfe_core::api::Client;
 use campfe_core::models::{Attachment, Comment, Person};
 use campfe_core::richtext;
 use gtk::glib;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
@@ -41,12 +41,20 @@ pub struct RecordingPage {
     /// `data:` URIs by attachment sgid, once fetched.
     images: RefCell<HashMap<String, String>>,
     fetching: RefCell<HashSet<String>>,
+    /// The comment a link to it asked to see, scrolled to on every render.
+    focus: Cell<Option<i64>>,
     view: RichTextView,
 }
 
 impl RecordingPage {
     pub fn recording_id(&self) -> i64 {
         self.doc.id
+    }
+
+    /// Scroll to this comment, now and whenever the document is redrawn.
+    pub fn focus_comment(&self, comment_id: i64) {
+        self.focus.set(Some(comment_id));
+        self.render();
     }
 
     /// A comment that arrived (posted here, or live). Dropped if shown.
@@ -116,7 +124,8 @@ impl RecordingPage {
             ));
         }
         body.push_str("</section>");
-        self.view.set_document(&body);
+        let anchor = self.focus.get().map(|id| format!("c{id}"));
+        self.view.set_document(&body, anchor.as_deref());
     }
 
     /// Fetch the images among `attachments` with the sign-in, once each,
@@ -193,6 +202,7 @@ pub fn recording_page(
         comments: RefCell::new(Vec::new()),
         images: RefCell::new(HashMap::new()),
         fetching: RefCell::new(HashSet::new()),
+        focus: Cell::new(None),
         view,
     });
     window.watch_recording(&page);

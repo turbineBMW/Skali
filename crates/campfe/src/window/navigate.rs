@@ -9,7 +9,7 @@ use adw::prelude::*;
 use adw::subclass::prelude::*;
 use campfe_core::api::Client;
 use campfe_core::error::{ApiError, Result};
-use campfe_core::links::AppLink;
+use campfe_core::links::{self, AppLink};
 use campfe_core::models::{
     Campfire, Card, DockTool, Document, Message, Project, Todo, Todolist, Upload,
 };
@@ -162,32 +162,41 @@ impl CampfeWindow {
             .push(&pages::todos::list_page(self, client, list));
     }
 
-    /// Open a Basecamp web link (an `app_url`) on a page of Campfe's own
-    /// when there is one: the recording is fetched, then shown. `false`
-    /// for a link Campfe has no page for, which the caller opens in the
-    /// browser instead.
-    pub fn open_app_url(&self, client: Client, url: &str) -> bool {
+    /// Open a Basecamp web link (an `app_url`, a link in rich text) on a
+    /// page of Campfe's own when there is one: the recording is fetched
+    /// with the client of the link's account, then shown, scrolled to the
+    /// comment the link names. `false` for a link Campfe has no page for,
+    /// or of an account it isn't signed in to, which the caller opens in
+    /// the browser instead.
+    pub fn open_app_url(&self, url: &str) -> bool {
         let Some(link) = AppLink::parse(url) else {
             return false;
         };
+        let Some(client) = links::account_of(url).and_then(|id| self.client_for(id)) else {
+            return false;
+        };
+        let focus = link.recording_id().zip(links::comment_of(url));
         let get = client.clone();
         let url = url.to_string();
         match link {
             AppLink::Chat(id) => self.open_fetched(
                 client,
                 url,
+                focus,
                 async move { get.get::<Campfire>(&format!("/chats/{id}.json")).await },
                 |window, client, chat| window.open_campfire(client, &chat),
             ),
             AppLink::Message(id) => self.open_fetched(
                 client,
                 url,
+                focus,
                 async move { get.get::<Message>(&format!("/messages/{id}.json")).await },
                 Self::open_message,
             ),
             AppLink::Card(id) => self.open_fetched(
                 client,
                 url,
+                focus,
                 async move {
                     get.get::<Card>(&format!("/card_tables/cards/{id}.json"))
                         .await
@@ -197,12 +206,14 @@ impl CampfeWindow {
             AppLink::Document(id) => self.open_fetched(
                 client,
                 url,
+                focus,
                 async move { get.get::<Document>(&format!("/documents/{id}.json")).await },
                 Self::open_document,
             ),
             AppLink::Upload(id) => self.open_fetched(
                 client,
                 url,
+                focus,
                 async move { get.get::<Upload>(&format!("/uploads/{id}.json")).await },
                 Self::open_upload,
             ),
@@ -210,6 +221,7 @@ impl CampfeWindow {
             AppLink::Todo(id) => self.open_fetched(
                 client,
                 url,
+                focus,
                 async move {
                     let todo = get.get::<Todo>(&format!("/todos/{id}.json")).await?;
                     let list = todo.recording.parent.ok_or_else(|| {
@@ -223,6 +235,7 @@ impl CampfeWindow {
             AppLink::Todolist(id) => self.open_fetched(
                 client,
                 url,
+                focus,
                 async move { get.get::<Todolist>(&format!("/todolists/{id}.json")).await },
                 Self::open_todolist,
             ),
@@ -234,6 +247,7 @@ impl CampfeWindow {
         &self,
         client: Client,
         url: String,
+        focus: Option<(i64, i64)>,
         fetch: impl Future<Output = Result<T>> + Send + 'static,
         open: impl FnOnce(&Self, Client, T) + 'static,
     ) {
@@ -243,7 +257,12 @@ impl CampfeWindow {
                 #[weak(rename_to = window)]
                 self,
                 move |result| match result {
-                    Ok(item) => open(&window, client, item),
+                    Ok(item) => {
+                        open(&window, client, item);
+                        if let Some((recording_id, comment_id)) = focus {
+                            window.focus_comment(recording_id, comment_id);
+                        }
+                    }
                     Err(error) => window.report(&format!("could not open {url}"), &error),
                 }
             ),

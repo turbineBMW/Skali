@@ -26,7 +26,6 @@ pub fn page(window: &CampfeWindow, client: Client) -> adw::NavigationPage {
     );
     let page = shell(&gettext("My Assignments"), &stack);
 
-    let client_for_rows = client.clone();
     rt::run(
         async move { client.get::<Assignments>("/my/assignments.json").await },
         glib::clone!(
@@ -36,8 +35,6 @@ pub fn page(window: &CampfeWindow, client: Client) -> adw::NavigationPage {
             stack,
             #[weak]
             column,
-            #[strong(rename_to = client)]
-            client_for_rows,
             move |result| match result {
                 Ok(assignments) => {
                     if assignments.priorities.is_empty() && assignments.non_priorities.is_empty() {
@@ -47,7 +44,6 @@ pub fn page(window: &CampfeWindow, client: Client) -> adw::NavigationPage {
                     if !assignments.priorities.is_empty() {
                         column.append(&section(
                             &window,
-                            &client,
                             &gettext("Up Next"),
                             &assignments.priorities,
                         ));
@@ -61,7 +57,7 @@ pub fn page(window: &CampfeWindow, client: Client) -> adw::NavigationPage {
                     }
                     for (project, items) in by_project {
                         let items: Vec<Assignment> = items.into_iter().cloned().collect();
-                        column.append(&section(&window, &client, &project, &items));
+                        column.append(&section(&window, &project, &items));
                     }
                     stack.set_visible_child_name("list");
                 }
@@ -75,12 +71,7 @@ pub fn page(window: &CampfeWindow, client: Client) -> adw::NavigationPage {
     page
 }
 
-fn section(
-    window: &CampfeWindow,
-    client: &Client,
-    title: &str,
-    assignments: &[Assignment],
-) -> gtk::Box {
+fn section(window: &CampfeWindow, title: &str, assignments: &[Assignment]) -> gtk::Box {
     let column = gtk::Box::new(gtk::Orientation::Vertical, 6);
     let heading = gtk::Label::builder()
         .label(title)
@@ -93,24 +84,23 @@ fn section(
         .css_classes(["boxed-list"])
         .build();
     for assignment in assignments {
-        list.append(&row(window, client, assignment));
+        list.append(&row(window, assignment));
     }
     column.append(&list);
     column
 }
 
-fn row(window: &CampfeWindow, client: &Client, assignment: &Assignment) -> adw::ActionRow {
+fn row(window: &CampfeWindow, assignment: &Assignment) -> adw::ActionRow {
     let row = adw::ActionRow::builder()
         .title(glib::markup_escape_text(&assignment.content))
         .activatable(!assignment.app_url.is_empty())
         .build();
     let url = assignment.app_url.clone();
-    let client = client.clone();
     row.connect_activated(glib::clone!(
         #[weak]
         window,
         move |_| {
-            if !window.open_app_url(client.clone(), &url) {
+            if !window.open_app_url(&url) {
                 window.open_in_browser(&url);
             }
         }

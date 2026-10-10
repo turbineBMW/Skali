@@ -263,7 +263,7 @@ impl HeyPage {
             move |row| {
                 if !url.is_empty()
                     && let Some(window) = hey.window.upgrade()
-                    && !window.open_app_url(hey.client.clone(), &url)
+                    && !window.open_app_url(&url)
                 {
                     window.open_in_browser(&url);
                 }
