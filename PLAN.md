@@ -206,10 +206,12 @@ Done:
   and comments; complete/reopen, add, assign and reschedule to-dos.
 - Phase 5: live feed (Action Cable + poll) for open chats and recordings;
   `--hidden` and autostart.
+- ETags: every JSON GET is conditional on the ETag it last saw (per account,
+  in memory, LRU-bounded); a 304 reuses the kept body and `Link`/count. The
+  quiet feed poll gets 304s.
 - Phase 6: Omarchy theme following, accent, `po/` template, Preferences.
 
 Open, in rough order:
-- ETags: the `kv` table exists, requests don't send `If-None-Match` yet.
 - Local search (FTS5 over the cache, for offline), My Bookmarks, My Notes,
   Timeline.
 - Writes: boosts, move/complete cards, subscribe/bookmark, to-do notes.

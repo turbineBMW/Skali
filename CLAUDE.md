@@ -52,7 +52,8 @@ session: reads only against Example Co.
 Cargo.toml                 workspace (edition 2024, thin LTO in release)
 crates/skali-core/src/     no widgets; everything here is unit-tested (`cargo test`)
   api.rs       reqwest Client per account: User-Agent, bearer, Link pagination, 429/5xx
-               retries, the SKALI_WRITE_ACCOUNTS guard
+               retries, ETag cache (If-None-Match, 304 -> kept body), the
+               SKALI_WRITE_ACCOUNTS guard
   auth.rs      Launchpad OAuth: authorize URL, loopback callback listener, exchange, refresh,
                authorization.json (identity + accounts). TokenSet's Debug hides the tokens.
   secrets.rs   oo7 keyring: one JSON TokenSet per Launchpad identity
@@ -94,7 +95,7 @@ po/                        skali.pot (`just pot`) and <lang>.po; install.sh comp
   across a call that may need `state_mut()`. Bind to a local before an `if let`/`match`: a
   temporary in the scrutinee lives for the whole block.
 - **Basecamp manners:** every request carries the User-Agent; listings follow `Link rel=next`
-  (never build page URLs); 429 waits `Retry-After`; use ETags once the cache has them. Flat
+  (never build page URLs); 429 waits `Retry-After`; GETs go through the client's ETag cache. Flat
   BC5 routes (`/todos/1.json`) are canonical; `/buckets/...` is legacy.
 - **Several tools of one kind per project is normal** (three Chats, two Message Boards):
   key everything on the tool id, never on the tool kind.

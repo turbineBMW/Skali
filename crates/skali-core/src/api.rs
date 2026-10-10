@@ -1,16 +1,19 @@
 //! The HTTP client for one Basecamp account: the base URL, the bearer token,
 //! the mandatory User-Agent, and the API's manners -- geared pagination by
-//! `Link: rel="next"`, 429 with `Retry-After`, 5xx with a backoff.
+//! `Link: rel="next"`, 429 with `Retry-After`, 5xx with a backoff, and
+//! conditional GETs: a JSON GET sends the `ETag` it last saw as
+//! `If-None-Match`, and a 304 answers with the body kept from then.
 //!
 //! Runs on the tokio runtime; nothing here touches GTK.
 
 use crate::USER_AGENT;
 use crate::error::{ApiError, Result};
-use reqwest::header::{HeaderMap, HeaderValue, LINK, RETRY_AFTER};
+use reqwest::header::{ETAG, HeaderMap, HeaderValue, IF_NONE_MATCH, LINK, RETRY_AFTER};
 use reqwest::{Response, StatusCode};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::RwLock;
 
@@ -22,6 +25,10 @@ const RETRIES: u32 = 3;
 const BACKOFF: Duration = Duration::from_millis(500);
 /// A 429 whose Retry-After is longer than this is reported, not waited out.
 const MAX_RETRY_AFTER: Duration = Duration::from_secs(15);
+/// The ETag cache keeps at most this many responses, and this many bytes of
+/// them, dropping the least recently used first.
+const CACHE_ENTRIES: usize = 512;
+const CACHE_BYTES: usize = 32 * 1024 * 1024;
 
 /// The access token, shared with whoever refreshes it.
 pub type SharedToken = Arc<RwLock<String>>;
@@ -46,6 +53,9 @@ pub struct Client {
     /// separated) may be; a development guard so a test post can't land in
     /// a real project. Unset, every account may.
     writes_allowed: bool,
+    /// Responses by URL with their ETags, shared by every clone of this
+    /// account's client. In memory only: the session's pages and polls.
+    cache: Arc<Mutex<EtagCache>>,
 }
 
 impl std::fmt::Debug for Client {
@@ -83,6 +93,7 @@ impl Client {
             base_url,
             token,
             writes_allowed,
+            cache: Arc::default(),
         })
     }
 
@@ -113,8 +124,53 @@ impl Client {
     }
 
     pub async fn get<T: DeserializeOwned>(&self, path: &str) -> Result<T> {
-        let response = self.send(|| self.http.get(self.url(path))).await?;
-        Ok(response.json().await?)
+        let cached = self.get_cached(path).await?;
+        Ok(serde_json::from_slice(&cached.body)?)
+    }
+
+    /// A GET by way of the ETag cache: with an ETag on hand the request is
+    /// conditional, and a 304 gives back what was kept with it.
+    async fn get_cached(&self, path: &str) -> Result<Cached> {
+        let url = self.url(path);
+        let known = self.cache.lock().unwrap().get(&url);
+        let response = self
+            .send(|| {
+                let request = self.http.get(&url);
+                match &known {
+                    Some(known) => request.header(IF_NONE_MATCH, known.etag.as_str()),
+                    None => request,
+                }
+            })
+            .await?;
+        if response.status() == StatusCode::NOT_MODIFIED
+            && let Some(known) = known
+        {
+            tracing::trace!("not modified: {url}");
+            return Ok(known);
+        }
+        let headers = response.headers();
+        let etag = headers
+            .get(ETAG)
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_string);
+        let next = next_link(headers);
+        let total = headers
+            .get("X-Total-Count")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.parse().ok());
+        let cached = Cached {
+            etag: etag.unwrap_or_default(),
+            body: response.bytes().await?.to_vec().into(),
+            next,
+            total,
+        };
+        let mut cache = self.cache.lock().unwrap();
+        if cached.etag.is_empty() {
+            cache.remove(&url);
+        } else {
+            cache.insert(url, cached.clone());
+        }
+        Ok(cached)
     }
 
     /// Any call, the body as text: for `skali api`.
@@ -144,15 +200,12 @@ impl Client {
     /// One page of a listing. `path` is the first page's path, or the
     /// `next` of the page before.
     pub async fn get_page<T: DeserializeOwned>(&self, path: &str) -> Result<Page<T>> {
-        let response = self.send(|| self.http.get(self.url(path))).await?;
-        let next = next_link(response.headers());
-        let total = response
-            .headers()
-            .get("X-Total-Count")
-            .and_then(|v| v.to_str().ok())
-            .and_then(|v| v.parse().ok());
-        let items = response.json().await?;
-        Ok(Page { items, next, total })
+        let cached = self.get_cached(path).await?;
+        Ok(Page {
+            items: serde_json::from_slice(&cached.body)?,
+            next: cached.next,
+            total: cached.total,
+        })
     }
 
     /// Every page of a listing, in order. For listings known to be small;
@@ -271,6 +324,61 @@ impl Client {
             };
             tokio::time::sleep(retry_in).await;
             delay *= 2;
+        }
+    }
+}
+
+/// A response as the ETag cache keeps it: the body and the headers a
+/// listing needs, since a 304 may not repeat them.
+#[derive(Debug, Clone)]
+struct Cached {
+    etag: String,
+    body: Arc<[u8]>,
+    next: Option<String>,
+    total: Option<u64>,
+}
+
+/// Responses by URL, bounded by count and bytes, least recently used out.
+#[derive(Debug, Default)]
+struct EtagCache {
+    entries: HashMap<String, (Cached, u64)>,
+    bytes: usize,
+    /// Bumped on every use; an entry's stamp says when it was last used.
+    clock: u64,
+}
+
+impl EtagCache {
+    fn get(&mut self, url: &str) -> Option<Cached> {
+        self.clock += 1;
+        let (cached, used) = self.entries.get_mut(url)?;
+        *used = self.clock;
+        Some(cached.clone())
+    }
+
+    fn insert(&mut self, url: String, cached: Cached) {
+        self.remove(&url);
+        if cached.body.len() > CACHE_BYTES {
+            return;
+        }
+        self.clock += 1;
+        self.bytes += cached.body.len();
+        self.entries.insert(url, (cached, self.clock));
+        while self.entries.len() > CACHE_ENTRIES || self.bytes > CACHE_BYTES {
+            let Some(oldest) = self
+                .entries
+                .iter()
+                .min_by_key(|(_, (_, used))| *used)
+                .map(|(url, _)| url.clone())
+            else {
+                break;
+            };
+            self.remove(&oldest);
+        }
+    }
+
+    fn remove(&mut self, url: &str) {
+        if let Some((cached, _)) = self.entries.remove(url) {
+            self.bytes -= cached.body.len();
         }
     }
 }
@@ -398,6 +506,47 @@ mod tests {
             search_path("x", Some("Kanban::Card"), true),
             "/search.json?q=x&type_names%5B%5D=Kanban%3A%3ACard&sort=recency"
         );
+    }
+
+    fn cached(etag: &str, len: usize) -> Cached {
+        Cached {
+            etag: etag.into(),
+            body: vec![0; len].into(),
+            next: None,
+            total: None,
+        }
+    }
+
+    #[test]
+    fn etag_cache_replaces_and_counts_bytes() {
+        let mut cache = EtagCache::default();
+        cache.insert("a".into(), cached("1", 10));
+        cache.insert("a".into(), cached("2", 4));
+        assert_eq!(cache.get("a").unwrap().etag, "2");
+        assert_eq!(cache.bytes, 4);
+        cache.remove("a");
+        assert!(cache.get("a").is_none());
+        assert_eq!(cache.bytes, 0);
+    }
+
+    #[test]
+    fn etag_cache_drops_the_least_recently_used() {
+        let mut cache = EtagCache::default();
+        for i in 0..CACHE_ENTRIES {
+            cache.insert(i.to_string(), cached("e", 1));
+        }
+        // Touch the oldest, so the second oldest is the one to go.
+        cache.get("0");
+        cache.insert("new".into(), cached("e", 1));
+        assert_eq!(cache.entries.len(), CACHE_ENTRIES);
+        assert!(cache.get("0").is_some());
+        assert!(cache.get("1").is_none());
+
+        cache.insert("big".into(), cached("e", CACHE_BYTES - 10));
+        assert!(cache.bytes <= CACHE_BYTES);
+        assert!(cache.get("big").is_some());
+        cache.insert("huge".into(), cached("e", CACHE_BYTES + 1));
+        assert!(cache.get("huge").is_none());
     }
 
     #[test]
