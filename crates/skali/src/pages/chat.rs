@@ -10,6 +10,7 @@
 use super::{avatar, shell, time_label};
 use crate::i18n::gettext;
 use crate::rt;
+use crate::widgets::inline_label::InlineLabel;
 use crate::window::SkaliWindow;
 use adw::prelude::*;
 use gtk::glib;
@@ -365,6 +366,14 @@ impl ChatView {
             return;
         };
         let weak = Rc::downgrade(self);
+        let on_add = {
+            let weak = weak.clone();
+            move |add: &gtk::Button| {
+                if let Some(view) = weak.upgrade() {
+                    view.ask_boost(line_id, add);
+                }
+            }
+        };
         crate::widgets::boosts::fill_chips(
             &chips,
             &boosts,
@@ -375,7 +384,18 @@ impl ChatView {
                     view.unboost(line_id, boost_id);
                 }
             },
+            on_add,
         );
+    }
+
+    /// Ask what to boost a line with, then boost it.
+    fn ask_boost(self: &Rc<Self>, line_id: i64, button: &gtk::Button) {
+        let weak = Rc::downgrade(self);
+        crate::widgets::boosts::ask(button, move |content| {
+            if let Some(view) = weak.upgrade() {
+                view.boost(line_id, content);
+            }
+        });
     }
 
     fn boost(self: &Rc<Self>, line_id: i64, content: String) {
@@ -586,28 +606,23 @@ impl ChatView {
             }
             bubble.append(&header);
         }
-        let body = gtk::Label::builder()
-            .use_markup(true)
-            .wrap(true)
-            .wrap_mode(gtk::pango::WrapMode::WordChar)
-            .xalign(0.0)
-            .selectable(true)
-            .focusable(false)
-            .build();
-        let markup = if line.is_rich_text() {
-            richtext::pango_markup(&line.content)
+        // Mentions as Basecamp shows them: a face and a name in the text.
+        let (markup, mentions) = if line.is_rich_text() {
+            richtext::markup_with_mentions(&line.content)
         } else {
-            richtext::escape(&line.content)
+            (richtext::escape(&line.content), Vec::new())
         };
-        body.set_markup(&markup);
+        let body = InlineLabel::with_mentions(&markup, &mentions);
         body.set_visible(!line.content.is_empty());
+        body.label().set_selectable(true);
+        body.label().set_focusable(false);
         // A link to a Basecamp item opens on Skali's page for it.
-        body.connect_activate_link(
-            |label, uri| match label.root().and_downcast::<SkaliWindow>() {
+        body.label().connect_activate_link(|label, uri| {
+            match label.root().and_downcast::<SkaliWindow>() {
                 Some(window) if window.open_app_url(uri) => glib::Propagation::Stop,
                 _ => glib::Propagation::Proceed,
-            },
-        );
+            }
+        });
         bubble.append(&body);
         for attachment in &line.attachments {
             bubble.append(&self.attachment(line, attachment));
@@ -635,14 +650,7 @@ impl ChatView {
             add.connect_clicked(glib::clone!(
                 #[weak(rename_to = view)]
                 self,
-                move |add| {
-                    let weak = Rc::downgrade(&view);
-                    crate::widgets::boosts::ask(add, move |content| {
-                        if let Some(view) = weak.upgrade() {
-                            view.boost(line_id, content);
-                        }
-                    });
-                }
+                move |add| view.ask_boost(line_id, add)
             ));
             add
         });
