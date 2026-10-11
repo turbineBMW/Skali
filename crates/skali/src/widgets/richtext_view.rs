@@ -114,7 +114,9 @@ fn document(body: &str) -> String {
          figure.attachment {{ margin: 12px 0; }}\
          figcaption {{ color: {dim}; font-size: 0.9em; }}\
          a.file {{ display: inline-block; padding: 6px 10px; border: 1px solid {border}; border-radius: 8px; text-decoration: none; margin: 4px 0; }}\
-         .mention {{ font-weight: 600; }}\
+         .mention {{ display: inline-flex; align-items: center; gap: 4px; padding: 0 6px 0 2px; border-radius: 999px; background: {code_bg}; vertical-align: -3px; line-height: 1.4; }}\
+         .mention:not(:has(img)) {{ padding-left: 6px; }}\
+         .mention img.face {{ width: 18px; height: 18px; border-radius: 50%; object-fit: cover; margin: 0; }}\
          blockquote {{ border-left: 3px solid {border}; margin: 8px 0; padding: 2px 12px; color: {dim}; }}\
          pre, code {{ background: {code_bg}; border-radius: 6px; font-family: monospace; }}\
          pre {{ padding: 10px 12px; overflow-x: auto; }} code {{ padding: 1px 4px; }}\
@@ -130,8 +132,10 @@ fn document(body: &str) -> String {
          .comment .body {{ margin-left: 42px; }}\
          .boosts {{ display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 0; }}\
          .comment .boosts {{ margin-left: 42px; }}\
-         .boost {{ display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border: 1px solid {border}; border-radius: 999px; font-size: 0.9em; color: {text}; text-decoration: none; }}\
-         .boost small {{ color: {dim}; }}\
+         .boost {{ display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px 2px 2px; border: 1px solid {border}; border-radius: 999px; font-size: 0.9em; color: {text}; text-decoration: none; }}\
+         .boost .face {{ width: 22px; height: 22px; border-radius: 50%; object-fit: cover; flex: none; }}\
+         .boost .face.initials {{ display: inline-flex; align-items: center; justify-content: center; font-size: 0.75em; }}\
+         a.boost.add {{ padding-left: 8px; }}\
          a.boost.mine {{ border-color: {accent}; }}\
          a.boost.add {{ color: {dim}; border-style: dashed; }}\
          .comment a.boost.add {{ visibility: hidden; }} .comment:hover a.boost.add {{ visibility: visible; }}\
@@ -200,6 +204,12 @@ fn decide_policy(
         }
     });
     true
+}
+
+/// The picture at an avatar URL as a `data:` URI, if the avatar cache has
+/// it on disk; None means a fallback this time.
+pub fn face(url: &str) -> Option<String> {
+    crate::avatars::cached_bytes(url).map(|bytes| data_uri("image/*", &bytes))
 }
 
 /// Bytes as a `data:` URI for an `<img>`.

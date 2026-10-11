@@ -37,17 +37,19 @@
 .card-column:drop(active) { box-shadow: inset 0 0 0 2px var(--accent-bg-color); }
 row.dragged { opacity: 0.4; }
 
-/* A boost under a chat line; yours is a button that takes it back. */
+/* A boost under a chat line: the booster's face and the boost, as
+   Basecamp shows it; yours is a button that takes it back. */
 .boost-chip {
-  padding: 0 8px;
-  min-height: 22px;
+  padding: 2px 8px 2px 2px;
+  min-height: 0;
   border-radius: 999px;
-  border: 1px solid alpha(currentColor, 0.15);
-  font-size: 0.9em;
+  border: 1px solid alpha(currentColor, 0.12);
 }
 button.boost-chip { background: none; box-shadow: none; }
 button.boost-chip.mine { border-color: var(--accent-bg-color); }
 button.boost-chip:hover { background-color: alpha(currentColor, 0.07); }
+/* After the boosts, the round button that adds another. */
+button.boost-more { min-width: 28px; min-height: 28px; padding: 0; }
 
 /* A chat line's boost button shows while the line is hovered. */
 .chat-line .boost-add { opacity: 0; }
@@ -64,8 +66,14 @@ button.boost-chip:hover { background-color: alpha(currentColor, 0.07); }
    sets it from its yellow). */
 .chat-bubble.mentioned { background-color: alpha(var(--warning-bg-color), 0.25); }
 .chat-name { font-weight: bold; }
+/* A mention in a chat line: the person's face and name on a tint. */
+.mention {
+  padding: 1px 6px 1px 1px;
+  border-radius: 999px;
+  background-color: alpha(currentColor, 0.1);
+}
 /* Boost chips sit on the bubble, so they take the window's colour. */
-.chat-bubble .boost-chip { background-color: var(--window-bg-color); }
+.chat-bubble .boost-chip, .chat-bubble button.boost-more { background-color: var(--window-bg-color); }
 
 /* The composer's GIF button: a word in a round button. */
 .gif-button > button { font-size: 0.75em; font-weight: bold; padding: 0 6px; }

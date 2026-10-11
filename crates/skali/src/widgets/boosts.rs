@@ -77,23 +77,34 @@ pub fn ask(parent: &impl IsA<gtk::Widget>, on_boost: impl Fn(String) + 'static) 
     dialog.set_focus(Some(&entry));
 }
 
-/// Fill `row` with one chip per boost: "🎉 Annie". Yours, when `me` is
-/// known and writes are allowed, is a button that takes it back.
+/// Fill `row` with one chip per boost, as Basecamp shows them: the
+/// booster's face and what they boosted with, their name the tooltip.
+/// Yours, when `me` is known and writes are allowed, is a button that
+/// takes it back. After them, a round button that adds one (`on_add`).
 pub fn fill_chips(
     row: &gtk::Box,
     boosts: &[Boost],
     me: Option<i64>,
     can_write: bool,
     on_unboost: impl Fn(i64) + Clone + 'static,
+    on_add: impl Fn(&gtk::Button) + 'static,
 ) {
     while let Some(child) = row.first_child() {
         row.remove(&child);
     }
     for boost in boosts {
-        let label = format!("{} {}", boost.content, boost.booster.name);
+        let content = gtk::Box::builder().spacing(4).build();
+        let face = adw::Avatar::builder()
+            .size(22)
+            .text(&boost.booster.name)
+            .show_initials(true)
+            .build();
+        crate::avatars::load_into(&face, &boost.booster.avatar_url);
+        content.append(&face);
+        content.append(&gtk::Label::new(Some(&boost.content)));
         if can_write && me == Some(boost.booster.id) {
             let chip = gtk::Button::builder()
-                .label(&label)
+                .child(&content)
                 .tooltip_text(gettext("Take your boost back"))
                 .css_classes(["boost-chip", "mine"])
                 .build();
@@ -105,13 +116,20 @@ pub fn fill_chips(
             });
             row.append(&chip);
         } else {
-            row.append(
-                &gtk::Label::builder()
-                    .label(&label)
-                    .css_classes(["boost-chip"])
-                    .build(),
-            );
+            content.set_tooltip_text(Some(&boost.booster.name));
+            content.add_css_class("boost-chip");
+            row.append(&content);
         }
+    }
+    if can_write && !boosts.is_empty() {
+        let add = gtk::Button::builder()
+            .icon_name("face-smile-big-symbolic")
+            .tooltip_text(gettext("Boost"))
+            .valign(gtk::Align::Center)
+            .css_classes(["circular", "boost-more"])
+            .build();
+        add.connect_clicked(move |add| on_add(add));
+        row.append(&add);
     }
     row.set_visible(!boosts.is_empty());
 }

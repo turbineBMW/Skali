@@ -9,7 +9,7 @@ use super::{avatar, count_label, shell_with_header, time_label};
 use crate::i18n::gettext;
 use crate::rt;
 use crate::widgets::attachments::{self, AttachmentPicker};
-use crate::widgets::richtext_view::RichTextView;
+use crate::widgets::richtext_view::{self, RichTextView};
 use crate::window::SkaliWindow;
 use adw::prelude::*;
 use gtk::glib;
@@ -51,6 +51,12 @@ pub struct RecordingPage {
     /// The comment a link to it asked to see, scrolled to on every render.
     focus: Cell<Option<i64>>,
     view: RichTextView,
+    /// Pictures the document wanted but the avatar cache didn't have: the
+    /// ones asked for (once each), and whether a redraw is due for them.
+    faces_missing: RefCell<HashSet<String>>,
+    faces_asked: RefCell<HashSet<String>>,
+    redraw_due: Cell<bool>,
+    this: std::rc::Weak<RecordingPage>,
 }
 
 impl RecordingPage {
@@ -88,6 +94,59 @@ impl RecordingPage {
         self.render();
     }
 
+    /// A picture for the document, noting a miss so it's fetched.
+    fn face(&self, url: &str) -> Option<String> {
+        let face = richtext_view::face(url);
+        if face.is_none() && !url.is_empty() {
+            self.faces_missing.borrow_mut().insert(url.to_string());
+        }
+        face
+    }
+
+    /// Fetch the pictures the last render missed, and render again once
+    /// they're in (once for all that arrive together).
+    fn fetch_faces(&self) {
+        let missing: Vec<String> = self.faces_missing.take().into_iter().collect();
+        for url in missing {
+            if !self.faces_asked.borrow_mut().insert(url.clone()) {
+                continue;
+            }
+            let this = self.this.clone();
+            crate::avatars::fetch(&url, move || {
+                let Some(page) = this.upgrade() else {
+                    return;
+                };
+                if page.redraw_due.replace(true) {
+                    return;
+                }
+                glib::idle_add_local_once(move || {
+                    page.redraw_due.set(false);
+                    page.render();
+                });
+            });
+        }
+    }
+
+    /// A person's picture for the document, from the avatar cache, or their
+    /// initial on a disc when it isn't there yet.
+    fn face_html(&self, person: &Person, class: &str) -> String {
+        match self.face(&person.avatar_url) {
+            Some(src) => format!("<img class=\"{class}\" src=\"{src}\" alt=\"\">"),
+            None => format!(
+                "<span class=\"{class} initials\">{}</span>",
+                richtext::escape(
+                    &person
+                        .name
+                        .chars()
+                        .next()
+                        .unwrap_or('?')
+                        .to_uppercase()
+                        .to_string()
+                )
+            ),
+        }
+    }
+
     fn render(&self) {
         let images = self.images.borrow();
         let resolve = |sgid: &str| {
@@ -98,7 +157,7 @@ impl RecordingPage {
         };
         let mut body = format!(
             "<article>{}</article>",
-            richtext::expand_attachments(&self.doc.content, resolve)
+            richtext::expand_attachments(&self.doc.content, resolve, |url| self.face(url))
         );
         body.push_str(&self.boosts_html(self.doc.id));
         body.push_str(&self.extra_html.borrow());
@@ -114,36 +173,20 @@ impl RecordingPage {
         ));
         for comment in comments.iter() {
             let person = &comment.recording.creator;
-            let avatar = match crate::avatars::cached_bytes(&person.avatar_url) {
-                Some(bytes) => format!(
-                    "<img class=\"avatar\" src=\"{}\" alt=\"\">",
-                    crate::widgets::richtext_view::data_uri("image/*", &bytes)
-                ),
-                None => format!(
-                    "<span class=\"initials\">{}</span>",
-                    richtext::escape(
-                        &person
-                            .name
-                            .chars()
-                            .next()
-                            .unwrap_or('?')
-                            .to_uppercase()
-                            .to_string()
-                    )
-                ),
-            };
+            let avatar = self.face_html(person, "avatar");
             body.push_str(&format!(
                 "<div class=\"comment\" id=\"c{}\"><div class=\"byline\">{avatar}<b>{}</b><time>{}</time></div><div class=\"body\">{}</div>{}</div>",
                 comment.recording.id,
                 richtext::escape(&person.name),
                 richtext::escape(&time_label(comment.recording.created_at)),
-                richtext::expand_attachments(&comment.content, resolve),
+                richtext::expand_attachments(&comment.content, resolve, |url| self.face(url)),
                 self.boosts_html(comment.recording.id)
             ));
         }
         body.push_str("</section>");
         let anchor = self.focus.get().map(|id| format!("c{id}"));
         self.view.set_document(&body, anchor.as_deref());
+        self.fetch_faces();
     }
 
     /// The boosts on one recording as chips: yours take the boost back,
@@ -161,21 +204,24 @@ impl RecordingPage {
         let me = self.me();
         let mut html = String::from("<div class=\"boosts\">");
         for boost in list {
+            // The booster's face and what they boosted with, as Basecamp
+            // shows it; the name is the tooltip.
             let content = richtext::escape(&boost.content);
-            let name = richtext::escape(&boost.booster.name);
+            let face = self.face_html(&boost.booster, "face");
             if can_write && me == Some(boost.booster.id) {
                 let action = PageAction::Unboost {
                     recording,
                     boost: boost.id,
                 };
                 html.push_str(&format!(
-                    "<a class=\"boost mine\" href=\"{}\" title=\"{}\">{content} <small>{name}</small></a>",
+                    "<a class=\"boost mine\" href=\"{}\" title=\"{}\">{face}{content}</a>",
                     action.uri(),
                     richtext::escape(&gettext("Take your boost back"))
                 ));
             } else {
                 html.push_str(&format!(
-                    "<span class=\"boost\">{content} <small>{name}</small></span>"
+                    "<span class=\"boost\" title=\"{}\">{face}{content}</span>",
+                    richtext::escape(&boost.booster.name)
                 ));
             }
         }
@@ -409,7 +455,7 @@ pub fn recording_page_parts(
     let recording_id = doc.id;
     let page_title = doc.title.clone();
     let extra_html = std::mem::take(&mut doc.extra_html);
-    let page = Rc::new(RecordingPage {
+    let page = Rc::new_cyclic(|this| RecordingPage {
         window: window.downgrade(),
         client: client.clone(),
         doc,
@@ -420,6 +466,10 @@ pub fn recording_page_parts(
         extra_html: RefCell::new(extra_html),
         focus: Cell::new(None),
         view,
+        faces_missing: RefCell::new(HashSet::new()),
+        faces_asked: RefCell::new(HashSet::new()),
+        redraw_due: Cell::new(false),
+        this: this.clone(),
     });
     window.watch_recording(&page);
     page.view.connect_action(glib::clone!(

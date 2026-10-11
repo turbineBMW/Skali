@@ -16,6 +16,58 @@ static ATTRIBUTE: LazyLock<Regex> =
 static FIGCAPTION: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?s)<figcaption[^>]*>(.*?)</figcaption>").unwrap());
 static WHITESPACE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[ \t\r\n]+").unwrap());
+static IMG: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)<img\b[^>]*>").unwrap());
+
+/// What `markup_with_mentions` leaves where each mention was: the object
+/// replacement character, for a label to put a widget on.
+pub const OBJECT: char = '\u{FFFC}';
+
+/// A mention in rich text: the name as written and the picture Basecamp
+/// put beside it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Mention {
+    /// Usually the first name.
+    pub name: String,
+    /// From the picture's alt text; the name as written if there is none.
+    pub full_name: String,
+    /// Empty if the mention came without a picture.
+    pub avatar_url: String,
+}
+
+/// The mention a `<bc-attachment>` stands for, if it is one.
+fn mention_of(attributes: &str, inner: &str) -> Option<Mention> {
+    ATTRIBUTE
+        .captures_iter(attributes)
+        .find(|c| &c[1] == "content-type" && &c[2] == "application/vnd.basecamp.mention")?;
+    let name = FIGCAPTION
+        .captures(inner)
+        .map(|c| plain_text(&c[1]).trim().to_string())
+        .unwrap_or_default();
+    let mut full_name = String::new();
+    let mut avatar_url = String::new();
+    if let Some(img) = IMG.find(inner) {
+        for capture in ATTRIBUTE.captures_iter(img.as_str()) {
+            match &capture[1] {
+                "alt" => full_name = decode_entities(&capture[2]).trim().to_string(),
+                "src" => avatar_url = decode_entities(&capture[2]),
+                _ => {}
+            }
+        }
+    }
+    let name = if name.is_empty() {
+        full_name.clone()
+    } else {
+        name
+    };
+    if full_name.is_empty() {
+        full_name = name.clone();
+    }
+    Some(Mention {
+        name,
+        full_name,
+        avatar_url,
+    })
+}
 
 /// What a `<bc-attachment>` stood for.
 fn attachment_text(attributes: &str, inner: &str) -> String {
@@ -158,7 +210,27 @@ pub fn shorten(text: &str, max: usize) -> String {
 /// Pango markup for a label: bold, italic, strike, code, links and line
 /// breaks survive; everything else is text. Safe to hand to `set_markup`.
 pub fn pango_markup(html: &str) -> String {
-    let html = ATTACHMENT.replace_all(html, |c: &regex::Captures| {
+    markup(html, None)
+}
+
+/// Pango markup as `pango_markup` makes it, but with an [`OBJECT`] where
+/// each mention was, and the mentions in the order they appear.
+pub fn markup_with_mentions(html: &str) -> (String, Vec<Mention>) {
+    let mut mentions = Vec::new();
+    let markup = markup(html, Some(&mut mentions));
+    (markup, mentions)
+}
+
+fn markup(html: &str, mut mentions: Option<&mut Vec<Mention>>) -> String {
+    // An OBJECT in the text itself would take a mention's place.
+    let html = html.replace(OBJECT, "");
+    let html = ATTACHMENT.replace_all(&html, |c: &regex::Captures| {
+        if let Some(found) = mentions.as_deref_mut()
+            && let Some(mention) = mention_of(&c[1], &c[2])
+        {
+            found.push(mention);
+            return OBJECT.to_string();
+        }
         format!("<b>{}</b>", escape(&attachment_text(&c[1], &c[2])))
     });
     let mut out = String::with_capacity(html.len());
@@ -243,33 +315,39 @@ pub enum Expanded {
 }
 
 /// Rich text for a browser view: every `<bc-attachment>` becomes HTML the
-/// view can show. A mention is a styled name; an image is `<img>` with
-/// whatever `resolve` gives for its sgid; any other file is a link. The
-/// rest of the HTML passes through as Basecamp sent it.
-pub fn expand_attachments(html: &str, resolve: impl Fn(&str) -> Option<Expanded>) -> String {
+/// view can show. A mention is the person's picture (what `face` gives
+/// for its URL, if anything) and name; an image is `<img>` with whatever
+/// `resolve` gives for its sgid; any other file is a link. The rest of
+/// the HTML passes through as Basecamp sent it.
+pub fn expand_attachments(
+    html: &str,
+    resolve: impl Fn(&str) -> Option<Expanded>,
+    face: impl Fn(&str) -> Option<String>,
+) -> String {
     ATTACHMENT
         .replace_all(html, |c: &regex::Captures| {
             let attributes = &c[1];
             let inner = &c[2];
             let mut sgid = String::new();
-            let mut content_type = String::new();
             let mut filename = String::new();
             let mut href = String::new();
             for capture in ATTRIBUTE.captures_iter(attributes) {
                 match &capture[1] {
                     "sgid" => sgid = capture[2].to_string(),
-                    "content-type" => content_type = capture[2].to_string(),
                     "filename" => filename = capture[2].to_string(),
                     "href" => href = capture[2].to_string(),
                     _ => {}
                 }
             }
-            if content_type == "application/vnd.basecamp.mention" {
-                let name = FIGCAPTION
-                    .captures(inner)
-                    .map(|c| plain_text(&c[1]))
+            if let Some(mention) = mention_of(attributes, inner) {
+                let picture = face(&mention.avatar_url)
+                    .map(|src| format!("<img class=\"face\" src=\"{}\" alt=\"\">", escape(&src)))
                     .unwrap_or_default();
-                return format!("<span class=\"mention\">@{}</span>", escape(name.trim()));
+                return format!(
+                    "<span class=\"mention\" title=\"{}\">{picture}{}</span>",
+                    escape(&mention.full_name),
+                    escape(&mention.name)
+                );
             }
             let caption = FIGCAPTION
                 .captures(inner)
@@ -414,17 +492,41 @@ mod tests {
     #[test]
     fn attachments_expand_for_a_browser() {
         let html = r#"<div>Hi <bc-attachment sgid="m" content-type="application/vnd.basecamp.mention"><figure><img src="x"><figcaption>Ann Lee</figcaption></figure></bc-attachment></div><bc-attachment sgid="i" content-type="image/png" filename="a.png" href="https://d/a.png"><figure><img src="https://preview/x"><figcaption>A caption</figcaption></figure></bc-attachment><bc-attachment sgid="f" content-type="application/pdf" filename="b.pdf" href="https://d/b.pdf"></bc-attachment>"#;
-        let out = expand_attachments(html, |sgid| match sgid {
-            "i" => Some(Expanded::Image {
-                src: "data:image/png;base64,AAAA".into(),
-                alt: "a.png".into(),
-            }),
-            _ => None,
-        });
+        let out = expand_attachments(
+            html,
+            |sgid| match sgid {
+                "i" => Some(Expanded::Image {
+                    src: "data:image/png;base64,AAAA".into(),
+                    alt: "a.png".into(),
+                }),
+                _ => None,
+            },
+            |url| (url == "x").then(|| "data:image/png;base64,FACE".into()),
+        );
         assert_eq!(
             out,
-            r#"<div>Hi <span class="mention">@Ann Lee</span></div><figure class="attachment"><img src="data:image/png;base64,AAAA" alt="a.png"><figcaption>A caption</figcaption></figure><a class="file" href="https://d/b.pdf">b.pdf</a>"#
+            r#"<div>Hi <span class="mention" title="Ann Lee"><img class="face" src="data:image/png;base64,FACE" alt="">Ann Lee</span></div><figure class="attachment"><img src="data:image/png;base64,AAAA" alt="a.png"><figcaption>A caption</figcaption></figure><a class="file" href="https://d/b.pdf">b.pdf</a>"#
         );
+    }
+
+    #[test]
+    fn mentions_leave_objects_in_the_markup() {
+        let html = "<div dir=\"auto\">\n<bc-attachment sgid=\"s\" content-type=\"application/vnd.basecamp.mention\" content='&lt;bc-mention gid=\"p\"&gt;&lt;img src=\"wrong\"&gt;'><figure>\n  <img alt=\"Brandon Williams\" class=\"avatar\" src=\"https://cdn/people/B=/avatar?a=1&amp;b=2\" width=\"20\">\n  <figcaption>\n    Brandon\n  </figcaption>\n</figure></bc-attachment> thanks \u{FFFC}<b>x</b> <bc-attachment sgid=\"f\" content-type=\"image/png\" filename=\"a.png\"></bc-attachment></div>";
+        let (markup, mentions) = markup_with_mentions(html);
+        assert_eq!(markup, "\u{FFFC} thanks <b>x</b> <b>[a.png]</b>");
+        assert_eq!(
+            mentions,
+            vec![Mention {
+                name: "Brandon".into(),
+                full_name: "Brandon Williams".into(),
+                avatar_url: "https://cdn/people/B=/avatar?a=1&b=2".into(),
+            }]
+        );
+        // Without a picture or a caption, one name stands for the other.
+        let bare = r#"<bc-attachment content-type="application/vnd.basecamp.mention"><figure><figcaption>Ann</figcaption></figure></bc-attachment>"#;
+        let (_, mentions) = markup_with_mentions(bare);
+        assert_eq!(mentions[0].full_name, "Ann");
+        assert_eq!(mentions[0].avatar_url, "");
     }
 
     #[test]

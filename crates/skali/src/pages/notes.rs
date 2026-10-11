@@ -161,7 +161,11 @@ impl NotesPage {
             self.view.set_document(
                 &format!(
                     "<article>{}</article>",
-                    richtext::expand_attachments(&note.content, |_| None)
+                    richtext::expand_attachments(
+                        &note.content,
+                        |_| None,
+                        crate::widgets::richtext_view::face,
+                    )
                 ),
                 None,
             );
