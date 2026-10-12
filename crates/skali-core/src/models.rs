@@ -403,7 +403,7 @@ searchable!(ChatLine, |line| if line.is_rich_text() {
             .collect::<Vec<_>>(),
     )
 } else {
-    line.content.clone()
+    crate::embed::plain_line_text(&line.content)
 });
 searchable!(Message, |message| crate::richtext::plain_text(
     &message.content

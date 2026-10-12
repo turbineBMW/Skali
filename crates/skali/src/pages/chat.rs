@@ -4,7 +4,9 @@
 //! prepends it, keeping what was on screen where it was. Each line is a
 //! bubble, yours on the right; boosts sit inside it, and hovering a line
 //! shows the button that adds one. An upload line shows its images (GIFs
-//! playing) and names its other files. The composer has an emoji picker
+//! playing; a click opens one at the window's size) and names its other
+//! files. A link's preview and a video player, which Basecamp puts in the
+//! line, are cards that open the page. The composer has an emoji picker
 //! and a GIF picker; a GIF goes up as a Campfire upload.
 
 use super::{avatar, shell, time_label};
@@ -15,6 +17,7 @@ use crate::window::SkaliWindow;
 use adw::prelude::*;
 use gtk::glib;
 use skali_core::api::Client;
+use skali_core::embed::{self, Embed};
 use skali_core::error::ApiError;
 use skali_core::gif::{self, Gif, GifError};
 use skali_core::models::{Boost, ChatAttachment, ChatLine, Person};
@@ -36,6 +39,9 @@ const LANE_INDENT: i32 = 64;
 /// The box an uploaded image is scaled down to fit.
 const IMAGE_WIDTH: i32 = 360;
 const IMAGE_HEIGHT: i32 = 320;
+/// A page preview's picture, beside its title.
+const PREVIEW_WIDTH: i32 = 128;
+const PREVIEW_HEIGHT: i32 = 84;
 
 /// Why a GIF didn't make it: KLIPY's side, or Basecamp's.
 enum GifSendError {
@@ -572,6 +578,24 @@ impl ChatView {
             .tooltip_text(&attachment.filename)
             .css_classes(["chat-image"])
             .build();
+        // The bytes, once here, for the viewer a click opens.
+        let shown: Rc<RefCell<Option<Vec<u8>>>> = Rc::default();
+        let click = gtk::GestureClick::new();
+        click.connect_released(glib::clone!(
+            #[strong]
+            shown,
+            #[strong(rename_to = filename)]
+            attachment.filename,
+            move |gesture, _, _, _| {
+                let (Some(picture), Some(bytes)) = (gesture.widget(), shown.borrow().clone())
+                else {
+                    return;
+                };
+                gesture.set_state(gtk::EventSequenceState::Claimed);
+                crate::widgets::image_viewer::show(&picture, &filename, &bytes);
+            }
+        ));
+        picture.add_controller(click);
         let client = self.client.clone();
         let url = attachment.download_url.clone();
         let filename = attachment.filename.clone();
@@ -583,6 +607,8 @@ impl ChatView {
                 move |result| match result {
                     Ok(bytes) => match crate::widgets::gifs::show_image(&picture, &bytes) {
                         Some((width, height)) => {
+                            picture.set_cursor_from_name(Some("zoom-in"));
+                            *shown.borrow_mut() = Some(bytes);
                             let (width, height) = (width.max(1) as f64, height.max(1) as f64);
                             let scale = (IMAGE_WIDTH as f64 / width)
                                 .min(IMAGE_HEIGHT as f64 / height)
@@ -601,6 +627,194 @@ impl ChatView {
             ),
         );
         picture.upcast()
+    }
+
+    /// A link's preview, a video or a post under the line's text, as a
+    /// card; a click opens the page (on Skali's own page, if it has one).
+    /// Its pictures come from the open web, a video's title from the
+    /// site's oEmbed, and a post from the copy Basecamp keeps of it.
+    fn embed_card(embed: &Embed) -> gtk::Widget {
+        let href = embed.href().to_string();
+        let card = gtk::Button::builder()
+            .tooltip_text(&href)
+            .halign(gtk::Align::Start)
+            .css_classes(["embed-card"])
+            .build();
+        // A post's own address comes with the post.
+        let target = Rc::new(RefCell::new(href.clone()));
+        card.connect_clicked(glib::clone!(
+            #[strong]
+            target,
+            move |card| {
+                let href = target.borrow().clone();
+                if let Some(window) = card.root().and_downcast::<SkaliWindow>()
+                    && !window.open_app_url(&href)
+                {
+                    window.open_in_browser(&href);
+                }
+            }
+        ));
+        let text_label = |text: &str, classes: &[&str], lines: i32| {
+            gtk::Label::builder()
+                .label(text)
+                .xalign(0.0)
+                .wrap(true)
+                .wrap_mode(gtk::pango::WrapMode::WordChar)
+                .lines(lines)
+                .ellipsize(gtk::pango::EllipsizeMode::End)
+                .max_width_chars(44)
+                .visible(!text.is_empty())
+                .css_classes(classes)
+                .build()
+        };
+        let picture = |width: i32, height: i32| {
+            gtk::Picture::builder()
+                .content_fit(gtk::ContentFit::Cover)
+                .can_shrink(true)
+                .overflow(gtk::Overflow::Hidden)
+                .width_request(width)
+                .height_request(height)
+                .valign(gtk::Align::Center)
+                .build()
+        };
+        match embed {
+            Embed::Page {
+                title,
+                caption,
+                image,
+                ..
+            } => {
+                let words = gtk::Box::builder()
+                    .orientation(gtk::Orientation::Vertical)
+                    .spacing(2)
+                    .hexpand(true)
+                    .valign(gtk::Align::Center)
+                    .build();
+                let host = host_of(&href);
+                words.append(&text_label(
+                    if title.is_empty() { &host } else { title },
+                    &["heading"],
+                    2,
+                ));
+                words.append(&text_label(caption, &["dim-label"], 3));
+                words.append(&text_label(&host, &["dim-label", "caption"], 1));
+                let row = gtk::Box::builder().spacing(12).build();
+                row.append(&words);
+                if !image.is_empty() {
+                    let picture = picture(PREVIEW_WIDTH, PREVIEW_HEIGHT);
+                    picture.set_visible(false);
+                    row.append(&picture);
+                    fetch_picture(&picture, image.clone());
+                }
+                card.set_child(Some(&row));
+            }
+            Embed::Video {
+                thumbnail, site, ..
+            } => {
+                let still = picture(IMAGE_WIDTH, IMAGE_WIDTH * 9 / 16);
+                let play = gtk::Image::builder()
+                    .icon_name("media-playback-start-symbolic")
+                    .pixel_size(24)
+                    .halign(gtk::Align::Center)
+                    .valign(gtk::Align::Center)
+                    .css_classes(["embed-play"])
+                    .build();
+                let overlay = gtk::Overlay::builder().child(&still).build();
+                overlay.add_overlay(&play);
+                let title = text_label("", &["heading"], 2);
+                let byline = text_label(site, &["dim-label", "caption"], 1);
+                let column = gtk::Box::builder()
+                    .orientation(gtk::Orientation::Vertical)
+                    .spacing(4)
+                    .build();
+                column.append(&overlay);
+                column.append(&title);
+                column.append(&byline);
+                card.set_child(Some(&column));
+                if !thumbnail.is_empty() {
+                    fetch_picture(&still, thumbnail.clone());
+                }
+                if let Some(oembed) = embed.oembed_url() {
+                    let site = site.clone();
+                    let fetch_still = thumbnail.is_empty();
+                    rt::run(
+                        async move { embed::video_info(&oembed).await },
+                        glib::clone!(
+                            #[weak]
+                            title,
+                            #[weak]
+                            byline,
+                            #[weak]
+                            still,
+                            move |result| match result {
+                                Ok(info) => {
+                                    title.set_label(&info.title);
+                                    title.set_visible(!info.title.is_empty());
+                                    if !info.author_name.is_empty() {
+                                        byline.set_label(&format!("{site} · {}", info.author_name));
+                                    }
+                                    if fetch_still && !info.thumbnail_url.is_empty() {
+                                        fetch_picture(&still, info.thumbnail_url);
+                                    }
+                                }
+                                Err(error) => {
+                                    tracing::debug!("no oEmbed for a {site} video: {error}")
+                                }
+                            }
+                        ),
+                    );
+                }
+            }
+            Embed::Post { src } => {
+                let author = text_label("", &["heading"], 2);
+                let words = text_label(&gettext("Embedded post"), &["dim-label"], 12);
+                let byline = text_label("", &["dim-label", "caption"], 1);
+                let column = gtk::Box::builder()
+                    .orientation(gtk::Orientation::Vertical)
+                    .spacing(6)
+                    .build();
+                column.append(&author);
+                column.append(&words);
+                column.append(&byline);
+                card.set_child(Some(&column));
+                let src = src.clone();
+                rt::run(
+                    {
+                        let src = src.clone();
+                        async move { embed::fetch_post(&src).await }
+                    },
+                    glib::clone!(
+                        #[weak]
+                        card,
+                        move |result| match result {
+                            Ok(Some(post)) => {
+                                author.set_label(&post.author);
+                                author.set_visible(!post.author.is_empty());
+                                words.set_label(&post.text);
+                                words.remove_css_class("dim-label");
+                                words.set_visible(!post.text.is_empty());
+                                let site = host_of(&post.href);
+                                let line = [site.as_str(), post.date.as_str()]
+                                    .into_iter()
+                                    .filter(|part| !part.is_empty())
+                                    .collect::<Vec<_>>()
+                                    .join(" · ");
+                                byline.set_label(&line);
+                                byline.set_visible(!line.is_empty());
+                                if !post.href.is_empty() {
+                                    card.set_tooltip_text(Some(&post.href));
+                                    *target.borrow_mut() = post.href;
+                                }
+                            }
+                            Ok(None) => tracing::debug!("the embed at {src} isn't one Skali reads"),
+                            Err(error) =>
+                                tracing::debug!("could not fetch the embed {src}: {error}"),
+                        }
+                    ),
+                );
+            }
+        }
+        card.upcast()
     }
 
     /// A click on someone's face or name opens what they're up to in the
@@ -723,13 +937,16 @@ impl ChatView {
             bubble.append(&header);
         }
         // Mentions as Basecamp shows them: a face and a name in the text.
-        let (markup, mentions) = if line.is_rich_text() {
-            richtext::markup_with_mentions(&line.content)
+        // A plain line's player is taken out of its words.
+        let (markup, mentions, embeds) = if line.is_rich_text() {
+            let (markup, mentions) = richtext::markup_with_mentions(&line.content);
+            (markup, mentions, embed::embeds(&line.content))
         } else {
-            (richtext::escape(&line.content), Vec::new())
+            let (text, embeds) = embed::split_text(&line.content);
+            (richtext::escape(&text), Vec::new(), embeds)
         };
         let body = InlineLabel::with_mentions(&markup, &mentions);
-        body.set_visible(!line.content.is_empty());
+        body.set_visible(!markup.is_empty());
         body.label().set_selectable(true);
         body.label().set_focusable(false);
         // A link to a Basecamp item opens on Skali's page for it.
@@ -740,6 +957,9 @@ impl ChatView {
             }
         });
         bubble.append(&body);
+        for embed in &embeds {
+            bubble.append(&Self::embed_card(embed));
+        }
         for attachment in &line.attachments {
             bubble.append(&self.attachment(line, attachment));
         }
@@ -968,6 +1188,42 @@ pub fn page(
         }
     ));
     page
+}
+
+/// A link's host, for a preview with no title of its own to show.
+fn host_of(href: &str) -> String {
+    href.split_once("://")
+        .map_or(href, |(_, rest)| rest)
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or_default()
+        .trim_start_matches("www.")
+        .to_string()
+}
+
+/// Fetch a picture from the open web onto `picture`, and show it once it's
+/// there; a picture that doesn't come stays hidden or blank.
+fn fetch_picture(picture: &gtk::Picture, url: String) {
+    rt::run(
+        {
+            let url = url.clone();
+            async move { embed::fetch(&url).await }
+        },
+        glib::clone!(
+            #[weak]
+            picture,
+            move |result| match result {
+                Ok(bytes) => {
+                    if crate::widgets::gifs::show_image(&picture, &bytes).is_some() {
+                        picture.set_visible(true);
+                    } else {
+                        tracing::debug!("the picture at {url} didn't decode");
+                    }
+                }
+                Err(error) => tracing::debug!("could not fetch the picture at {url}: {error}"),
+            }
+        ),
+    );
 }
 
 /// Whether `line` continues a run by the same person within minutes.

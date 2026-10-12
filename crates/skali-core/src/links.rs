@@ -31,6 +31,8 @@ pub enum PageAction {
     Boost(i64),
     /// `skali:unboost/<recording>/<boost>`: take your boost back.
     Unboost { recording: i64, boost: i64 },
+    /// `skali:image/<n>`: show the document's n-th image at full size.
+    Image(i64),
 }
 
 impl PageAction {
@@ -41,6 +43,7 @@ impl PageAction {
         let mut id = || parts.next()?.parse::<i64>().ok();
         let parsed = match action {
             "boost" => Self::Boost(id()?),
+            "image" => Self::Image(id()?),
             "unboost" => Self::Unboost {
                 recording: id()?,
                 boost: id()?,
@@ -54,6 +57,7 @@ impl PageAction {
         match self {
             Self::Boost(recording) => format!("skali:boost/{recording}"),
             Self::Unboost { recording, boost } => format!("skali:unboost/{recording}/{boost}"),
+            Self::Image(index) => format!("skali:image/{index}"),
         }
     }
 }
@@ -228,6 +232,7 @@ mod tests {
                 recording: 5,
                 boost: 9,
             },
+            PageAction::Image(0),
         ] {
             assert_eq!(PageAction::parse(&action.uri()), Some(action));
         }

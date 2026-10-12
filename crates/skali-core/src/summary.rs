@@ -218,7 +218,7 @@ fn line_text(line: &ChatLine) -> String {
             .collect();
         format!("[shared {}]", files.join(", "))
     } else {
-        line.content.clone()
+        crate::embed::plain_line_text(&line.content)
     }
 }
 
