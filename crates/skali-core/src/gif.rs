@@ -6,11 +6,8 @@
 //! 100 searches an hour, which one person fits but a shared key wouldn't.
 //! The GIFs you sent are remembered locally (`meta`), never reported.
 
-use crate::USER_AGENT;
 use crate::db::Database;
 use std::collections::HashMap;
-use std::sync::OnceLock;
-use std::time::Duration;
 
 const API: &str = "https://api.klipy.com/api/v1";
 /// The largest GIF sent; a bigger rendition is passed over for a smaller one.
@@ -117,17 +114,6 @@ impl Item {
     }
 }
 
-fn http() -> &'static reqwest::Client {
-    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
-    CLIENT.get_or_init(|| {
-        reqwest::Client::builder()
-            .user_agent(USER_AGENT)
-            .timeout(Duration::from_secs(20))
-            .build()
-            .expect("a client with no custom TLS builds")
-    })
-}
-
 /// KLIPY's `{"errors": {"message": ["…"]}}`, flattened to one line.
 fn error_message(errors: &serde_json::Value) -> Option<String> {
     let messages: Vec<&str> = match errors {
@@ -157,7 +143,7 @@ pub async fn search(api_key: &str, query: &str, page: u32) -> Result<Vec<Gif>, G
     if api_key.is_empty() {
         return Err(GifError::NoKey);
     }
-    let response = http()
+    let response = crate::web()
         .get(format!("{API}/{api_key}/gifs/search"))
         .query(&[
             ("q", query),
@@ -193,7 +179,7 @@ pub async fn search(api_key: &str, query: &str, page: u32) -> Result<Vec<Gif>, G
 
 /// A GIF's bytes, checked to be one and not too big to send.
 pub async fn download(url: &str) -> Result<Vec<u8>, GifError> {
-    let response = http().get(url).send().await?.error_for_status()?;
+    let response = crate::web().get(url).send().await?.error_for_status()?;
     if response
         .content_length()
         .is_some_and(|len| len as usize > MAX_BYTES)
@@ -212,7 +198,7 @@ pub async fn download(url: &str) -> Result<Vec<u8>, GifError> {
 
 /// A grid tile's preview or still (any image format).
 pub async fn thumbnail(url: &str) -> Result<Vec<u8>, GifError> {
-    Ok(http()
+    Ok(crate::web()
         .get(url)
         .send()
         .await?

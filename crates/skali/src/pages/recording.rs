@@ -41,8 +41,11 @@ pub struct RecordingPage {
     client: Client,
     doc: RecordingDoc,
     comments: RefCell<Vec<Comment>>,
-    /// `data:` URIs by attachment sgid, once fetched.
-    images: RefCell<HashMap<String, String>>,
+    /// `data:` URIs and file names by attachment sgid, once fetched.
+    images: RefCell<HashMap<String, (String, String)>>,
+    /// The sgids of the images in the document as last rendered, in
+    /// order: `PageAction::Image` names one by its place here.
+    image_order: RefCell<Vec<String>>,
     fetching: RefCell<HashSet<String>>,
     /// Boosts by the recording they're on: the body's, each comment's.
     boosts: RefCell<HashMap<i64, Vec<Boost>>>,
@@ -149,10 +152,16 @@ impl RecordingPage {
 
     fn render(&self) {
         let images = self.images.borrow();
+        self.image_order.borrow_mut().clear();
         let resolve = |sgid: &str| {
-            images.get(sgid).map(|src| richtext::Expanded::Image {
-                src: src.clone(),
-                alt: String::new(),
+            images.get(sgid).map(|(src, _)| {
+                let mut order = self.image_order.borrow_mut();
+                order.push(sgid.to_string());
+                richtext::Expanded::Image {
+                    src: src.clone(),
+                    alt: String::new(),
+                    href: PageAction::Image(order.len() as i64 - 1).uri(),
+                }
             })
         };
         let mut body = format!(
@@ -285,8 +294,26 @@ impl RecordingPage {
             {
                 self.unboost(recording, boost)
             }
+            Some(PageAction::Image(index)) => self.show_image(index),
             _ => tracing::warn!("ignored a page link: {uri}"),
         }
+    }
+
+    /// The document's `index`-th image, at the window's size.
+    fn show_image(&self, index: i64) {
+        let sgid = usize::try_from(index)
+            .ok()
+            .and_then(|index| self.image_order.borrow().get(index).cloned());
+        let images = self.images.borrow();
+        let Some((src, filename)) = sgid.and_then(|sgid| images.get(&sgid)) else {
+            tracing::warn!("no image {index} on the page");
+            return;
+        };
+        let bytes = src
+            .split_once("base64,")
+            .map(|(_, data)| glib::base64_decode(data))
+            .unwrap_or_default();
+        crate::widgets::image_viewer::show(self.view.widget(), filename, &bytes);
     }
 
     fn is_my_boost(&self, recording: i64, boost: i64) -> bool {
@@ -390,6 +417,7 @@ impl RecordingPage {
             let client = self.client.clone();
             let url = attachment.download_url.clone();
             let content_type = attachment.content_type.clone();
+            let filename = attachment.filename.clone();
             rt::run(
                 async move { client.get_bytes(&url).await },
                 glib::clone!(
@@ -401,7 +429,7 @@ impl RecordingPage {
                             Ok(bytes) => {
                                 let uri =
                                     crate::widgets::richtext_view::data_uri(&content_type, &bytes);
-                                page.images.borrow_mut().insert(sgid, uri);
+                                page.images.borrow_mut().insert(sgid, (uri, filename));
                                 page.render();
                             }
                             Err(error) => tracing::warn!("could not fetch an image: {error}"),
@@ -461,6 +489,7 @@ pub fn recording_page_parts(
         doc,
         comments: RefCell::new(Vec::new()),
         images: RefCell::new(HashMap::new()),
+        image_order: RefCell::new(Vec::new()),
         fetching: RefCell::new(HashSet::new()),
         boosts: RefCell::new(HashMap::new()),
         extra_html: RefCell::new(extra_html),

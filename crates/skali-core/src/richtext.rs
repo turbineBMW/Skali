@@ -11,13 +11,16 @@ use regex::Regex;
 static TAG: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)<[^>]*>").unwrap());
 static ATTACHMENT: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?s)<bc-attachment\b([^>]*)>(.*?)</bc-attachment>").unwrap());
-static ATTRIBUTE: LazyLock<Regex> =
+pub(crate) static ATTRIBUTE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"([a-zA-Z-]+)="([^"]*)""#).unwrap());
 static FIGCAPTION: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?s)<figcaption[^>]*>(.*?)</figcaption>").unwrap());
 static WHITESPACE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[ \t\r\n]+").unwrap());
 static IMG: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)<img\b[^>]*>").unwrap());
-static LINK: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?is)<a\b([^>]*)>(.*?)</a>").unwrap());
+static FIGURE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?is)<figure\b[^>]*>\s*<iframe\b.*?</figure>").unwrap());
+pub(crate) static LINK: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?is)<a\b([^>]*)>(.*?)</a>").unwrap());
 
 /// What `markup_with_mentions` leaves where each mention was: the object
 /// replacement character, for a label to put a widget on.
@@ -88,6 +91,10 @@ fn attachment_text(attributes: &str, inner: &str) -> String {
             .unwrap_or_default();
         return format!("@{}", name.trim());
     }
+    // A link's preview: the link is in the text already.
+    if content_type == crate::embed::OPENGRAPH {
+        return String::new();
+    }
     if filename.is_empty() {
         let caption = FIGCAPTION
             .captures(inner)
@@ -105,7 +112,7 @@ fn attachment_text(attributes: &str, inner: &str) -> String {
     format!("[{filename}]")
 }
 
-fn decode_entities(text: &str) -> String {
+pub(crate) fn decode_entities(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut rest = text;
     while let Some(start) = rest.find('&') {
@@ -124,6 +131,13 @@ fn decode_entities(text: &str) -> String {
             "quot" => Some('"'),
             "apos" | "#39" => Some('\''),
             "nbsp" => Some('\u{a0}'),
+            "mdash" => Some('—'),
+            "ndash" => Some('–'),
+            "hellip" => Some('…'),
+            "lsquo" => Some('‘'),
+            "rsquo" => Some('’'),
+            "ldquo" => Some('“'),
+            "rdquo" => Some('”'),
             _ => entity
                 .strip_prefix('#')
                 .and_then(|number| {
@@ -258,7 +272,11 @@ fn markup(html: &str, mut mentions: Option<&mut Vec<Mention>>) -> String {
             found.push(mention);
             return OBJECT.to_string();
         }
-        format!("<b>{}</b>", escape(&attachment_text(&c[1], &c[2])))
+        let text = attachment_text(&c[1], &c[2]);
+        if text.is_empty() {
+            return text;
+        }
+        format!("<b>{}</b>", escape(&text))
     });
     let mut out = String::with_capacity(html.len());
     let mut last = 0;
@@ -335,8 +353,13 @@ fn markup(html: &str, mut mentions: Option<&mut Vec<Mention>>) -> String {
 
 /// What stands in for a `<bc-attachment>` in a rendered document.
 pub enum Expanded {
-    /// An image we have the bytes of, as a `data:` URI.
-    Image { src: String, alt: String },
+    /// An image we have the bytes of, as a `data:` URI, and the link a
+    /// click on it follows (empty for none).
+    Image {
+        src: String,
+        alt: String,
+        href: String,
+    },
     /// A file (or an image not fetched yet): a link the app handles.
     File { href: String, filename: String },
 }
@@ -344,15 +367,23 @@ pub enum Expanded {
 /// Rich text for a browser view: every `<bc-attachment>` becomes HTML the
 /// view can show. A mention is the person's picture (what `face` gives
 /// for its URL, if anything) and name; an image is `<img>` with whatever
-/// `resolve` gives for its sgid; any other file is a link. The rest of
-/// the HTML passes through as Basecamp sent it.
+/// `resolve` gives for its sgid; a link's preview and a video player
+/// (which the view could not load) are cards that link to the page; any
+/// other file is a link. The rest of the HTML passes through as Basecamp
+/// sent it.
 pub fn expand_attachments(
     html: &str,
     resolve: impl Fn(&str) -> Option<Expanded>,
     face: impl Fn(&str) -> Option<String>,
 ) -> String {
+    let html = FIGURE.replace_all(html, |c: &regex::Captures| {
+        match crate::embed::embeds(&c[0]).first() {
+            Some(embed) => embed_card(embed),
+            None => c[0].to_string(),
+        }
+    });
     ATTACHMENT
-        .replace_all(html, |c: &regex::Captures| {
+        .replace_all(&html, |c: &regex::Captures| {
             let attributes = &c[1];
             let inner = &c[2];
             let mut sgid = String::new();
@@ -376,15 +407,28 @@ pub fn expand_attachments(
                     escape(&mention.name)
                 );
             }
+            if let Some(embed) = crate::embed::page_of(attributes)
+                .filter(|_| attributes.contains(crate::embed::OPENGRAPH))
+            {
+                return embed_card(&embed);
+            }
             let caption = FIGCAPTION
                 .captures(inner)
                 .map(|c| plain_text(&c[1]))
                 .unwrap_or_default();
             match resolve(&sgid) {
-                Some(Expanded::Image { src, alt }) => format!(
-                    "<figure class=\"attachment\"><img src=\"{}\" alt=\"{}\">{}</figure>",
-                    escape(&src),
-                    escape(&alt),
+                Some(Expanded::Image { src, alt, href }) => format!(
+                    "<figure class=\"attachment\">{}{}</figure>",
+                    if href.is_empty() {
+                        format!("<img src=\"{}\" alt=\"{}\">", escape(&src), escape(&alt))
+                    } else {
+                        format!(
+                            "<a class=\"image\" href=\"{}\"><img src=\"{}\" alt=\"{}\"></a>",
+                            escape(&href),
+                            escape(&src),
+                            escape(&alt)
+                        )
+                    },
                     if caption.trim().is_empty() {
                         String::new()
                     } else {
@@ -411,6 +455,31 @@ pub fn expand_attachments(
             }
         })
         .into_owned()
+}
+
+/// A preview or a player as a card linking to its page: no picture, as
+/// the view fetches nothing.
+fn embed_card(embed: &crate::embed::Embed) -> String {
+    let (title, caption) = match embed {
+        crate::embed::Embed::Page { title, caption, .. } => (title.as_str(), caption.as_str()),
+        crate::embed::Embed::Video { site, href, .. } => (site.as_str(), href.as_str()),
+        crate::embed::Embed::Post { .. } => ("Embedded post", ""),
+    };
+    let title = if title.is_empty() {
+        embed.href()
+    } else {
+        title
+    };
+    format!(
+        "<a class=\"embed\" href=\"{}\"><b>{}</b>{}</a>",
+        escape(embed.href()),
+        escape(title),
+        if caption.is_empty() {
+            String::new()
+        } else {
+            format!("<span>{}</span>", escape(caption))
+        }
+    )
 }
 
 /// Whether `html` has more than paragraphs and line breaks: what editing it
@@ -494,6 +563,10 @@ mod tests {
     fn plain_text_strips_and_breaks() {
         let html = "<div>Hello <strong>there</strong><br>second</div><div>&amp; third &#8217;s</div><div></div>";
         assert_eq!(plain_text(html), "Hello there\nsecond\n& third ’s");
+        assert_eq!(
+            plain_text("a &mdash; b&hellip; &ldquo;c&rdquo;"),
+            "a — b… “c”"
+        );
     }
 
     #[test]
@@ -536,6 +609,7 @@ mod tests {
                 "i" => Some(Expanded::Image {
                     src: "data:image/png;base64,AAAA".into(),
                     alt: "a.png".into(),
+                    href: "skali:image/0".into(),
                 }),
                 _ => None,
             },
@@ -543,7 +617,24 @@ mod tests {
         );
         assert_eq!(
             out,
-            r#"<div>Hi <span class="mention" title="Ann Lee"><img class="face" src="data:image/png;base64,FACE" alt="">Ann Lee</span></div><figure class="attachment"><img src="data:image/png;base64,AAAA" alt="a.png"><figcaption>A caption</figcaption></figure><a class="file" href="https://d/b.pdf">b.pdf</a>"#
+            r#"<div>Hi <span class="mention" title="Ann Lee"><img class="face" src="data:image/png;base64,FACE" alt="">Ann Lee</span></div><figure class="attachment"><a class="image" href="skali:image/0"><img src="data:image/png;base64,AAAA" alt="a.png"></a><figcaption>A caption</figcaption></figure><a class="file" href="https://d/b.pdf">b.pdf</a>"#
+        );
+    }
+
+    #[test]
+    fn previews_and_players_become_cards() {
+        let html = r#"<p><a href="https://o.org/t">https://o.org/t</a><bc-attachment content-type="application/vnd.basecamp.opengraph-embed" url="https://o.org/s.png" href="https://o.org/t" caption="People &amp; teams" title="Teams"></bc-attachment></p><figure dir="auto">
+    <iframe src="https://www.youtube.com/embed/x?feature=oembed"></iframe>
+</figure>"#;
+        assert_eq!(
+            expand_attachments(html, |_| None, |_| None),
+            r#"<p><a href="https://o.org/t">https://o.org/t</a><a class="embed" href="https://o.org/t"><b>Teams</b><span>People &amp; teams</span></a></p><a class="embed" href="https://www.youtube.com/watch?v=x"><b>YouTube</b><span>https://www.youtube.com/watch?v=x</span></a>"#
+        );
+        // The link is in the text; the preview adds nothing to it.
+        assert_eq!(plain_text(html), "https://o.org/t");
+        assert_eq!(
+            pango_markup(html),
+            r#"<a href="https://o.org/t">https://o.org/t</a>"#
         );
     }
 

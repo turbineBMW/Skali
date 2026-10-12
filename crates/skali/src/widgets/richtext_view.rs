@@ -112,6 +112,10 @@ fn document(body: &str) -> String {
          a {{ color: {accent}; }}\
          img {{ max-width: 100%; height: auto; border-radius: 8px; }}\
          figure.attachment {{ margin: 12px 0; }}\
+         a.image {{ cursor: zoom-in; }}\
+         a.embed {{ display: block; max-width: 520px; padding: 10px 12px; margin: 8px 0; border: 1px solid {border}; border-radius: 10px; color: {text}; text-decoration: none; }}\
+         a.embed b, a.embed span {{ display: block; overflow: hidden; text-overflow: ellipsis; }}\
+         a.embed span {{ color: {dim}; font-size: 0.9em; }}\
          figcaption {{ color: {dim}; font-size: 0.9em; }}\
          a.file {{ display: inline-block; padding: 6px 10px; border: 1px solid {border}; border-radius: 8px; text-decoration: none; margin: 4px 0; }}\
          .mention {{ display: inline-flex; align-items: center; gap: 4px; padding: 0 6px 0 2px; border-radius: 999px; background: {code_bg}; vertical-align: -3px; line-height: 1.4; }}\
