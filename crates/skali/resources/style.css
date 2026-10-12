@@ -55,16 +55,26 @@ button.boost-more { min-width: 28px; min-height: 28px; padding: 0; }
 .chat-line .boost-add { opacity: 0; }
 .chat-line:hover .boost-add, .chat-line .boost-add:focus-visible { opacity: 1; }
 
-/* Chat lines as bubbles: yours tinted with the accent, on the right. */
+/* Chat lines as bubbles: yours in the accent itself, on the right. A
+   filled bubble takes the colour's own text colour, links included, which
+   would otherwise be the accent on the accent. */
 .chat-bubble {
   padding: 8px 14px;
   border-radius: 14px;
   background-color: alpha(currentColor, 0.06);
 }
-.chat-bubble.mine { background-color: alpha(var(--accent-bg-color), 0.25); }
+.chat-bubble.mine {
+  background-color: var(--accent-bg-color);
+  color: var(--accent-fg-color);
+}
 /* A line that mentions you, in the theme's warm colour (an Omarchy theme
    sets it from its yellow). */
-.chat-bubble.mentioned { background-color: alpha(var(--warning-bg-color), 0.25); }
+.chat-bubble.mentioned {
+  background-color: var(--warning-bg-color);
+  color: var(--warning-fg-color);
+}
+.chat-bubble.mine label link { color: var(--accent-fg-color); }
+.chat-bubble.mentioned label link { color: var(--warning-fg-color); }
 .chat-name { font-weight: bold; }
 /* A mention in a chat line: the person's face and name on a tint. */
 .mention {
