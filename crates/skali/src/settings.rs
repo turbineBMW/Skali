@@ -6,6 +6,7 @@ use gtk::gio;
 pub const FOLLOW_OMARCHY_THEME: &str = "follow-omarchy-theme";
 pub const NOTIFICATIONS: &str = "notifications";
 pub const KLIPY_API_KEY: &str = "klipy-api-key";
+pub const SUMMARIZER: &str = "summarizer";
 pub const WINDOW_WIDTH: &str = "window-width";
 pub const WINDOW_HEIGHT: &str = "window-height";
 pub const WINDOW_MAXIMIZED: &str = "window-maximized";

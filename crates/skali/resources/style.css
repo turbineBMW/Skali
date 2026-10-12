@@ -73,6 +73,8 @@ button.boost-more { min-width: 28px; min-height: 28px; padding: 0; }
   background-color: var(--warning-bg-color);
   color: var(--warning-fg-color);
 }
+/* The line a link pointed at, outlined for a moment. */
+.chat-line.focused .chat-bubble { outline: 2px solid var(--accent-color); outline-offset: 2px; }
 .chat-bubble.mine label link { color: var(--accent-fg-color); }
 .chat-bubble.mentioned label link { color: var(--warning-fg-color); }
 .chat-name { font-weight: bold; }
@@ -90,3 +92,17 @@ button.boost-more { min-width: 28px; min-height: 28px; padding: 0; }
 /* The GIF picker's tiles and the images in upload lines, rounded. */
 button.gif-tile { padding: 0; border-radius: 8px; }
 button.gif-tile picture, picture.chat-image { border-radius: 8px; }
+
+/* AI summaries: paragraphs on cards, and states as small pills. */
+.summary-prose { padding: 12px 14px; }
+.summary-state {
+  border-radius: 999px;
+  padding: 1px 9px;
+  font-size: smaller;
+  font-weight: bold;
+  background-color: alpha(currentColor, 0.1);
+}
+.summary-state.open, .summary-state.active { color: var(--success-color); background-color: alpha(var(--success-color), 0.14); }
+.summary-state.merged, .summary-state.decided, .summary-state.fresh { color: var(--accent-color); background-color: alpha(var(--accent-color), 0.14); }
+.summary-state.closed, .summary-state.blocked { color: var(--error-color); background-color: alpha(var(--error-color), 0.14); }
+.summary-state.draft, .summary-state.done { opacity: 0.75; }

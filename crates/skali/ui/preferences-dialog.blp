@@ -43,6 +43,23 @@ template $SkaliPreferencesDialog: Adw.PreferencesDialog {
     }
 
     Adw.PreferencesGroup {
+      title: _("AI summaries");
+      description: _("A project's summary page has a coding agent you already use read its recent chats and message boards and write who's working on what. It runs signed in as you, only when you press Summarize, and what it reads goes to that agent's maker.");
+
+      Adw.ComboRow summarizer_row {
+        title: _("Summarize with");
+
+        model: Gtk.StringList {
+          strings [
+            _("Off"),
+            "Claude Code",
+            "Codex",
+          ]
+        };
+      }
+    }
+
+    Adw.PreferencesGroup {
       title: _("GIFs");
       description: _("GIF search in chats uses KLIPY. Get a free API key at partner.klipy.com and paste it here.");
 

@@ -23,6 +23,8 @@ use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
+/// The most older pages fetched looking for a line a link points at.
+const FOCUS_PAGES: usize = 20;
 /// How close to the top (in pixels) asks for the older page.
 const SCROLLBACK_THRESHOLD: f64 = 120.0;
 /// A line's avatar, and the gap left for one in a run.
@@ -69,6 +71,12 @@ pub struct ChatView {
     /// Whether the newest line is in view, so the page follows it when
     /// the lines grow: a live line, boosts or an image that load late.
     pinned: Cell<bool>,
+    /// Each line's row, by line id, to scroll to one.
+    rows: RefCell<HashMap<i64, gtk::Widget>>,
+    /// A line to scroll to once it's loaded, and how many older pages
+    /// have been fetched looking for it.
+    focus: Cell<Option<i64>>,
+    focus_pages: Cell<usize>,
 }
 
 impl ChatView {
@@ -173,6 +181,78 @@ impl ChatView {
         self.chat_id
     }
 
+    /// Scroll to a line, fetching older pages until it's there (as far
+    /// back as `FOCUS_PAGES`), and mark it for a moment.
+    pub fn focus_line(self: &Rc<Self>, line_id: i64) {
+        self.focus.set(Some(line_id));
+        self.focus_pages.set(0);
+        self.seek_focus();
+    }
+
+    /// The next step towards the line asked for: scroll to it if it's
+    /// shown, or fetch the page before. Runs again as each page arrives.
+    fn seek_focus(self: &Rc<Self>) {
+        let Some(line_id) = self.focus.get() else {
+            return;
+        };
+        let row = self.rows.borrow().get(&line_id).cloned();
+        if let Some(row) = row {
+            self.focus.set(None);
+            self.scroll_to(&row);
+            return;
+        }
+        // The first page comes by itself; a fetch in flight calls back.
+        if self.shown.get() == 0 || self.loading.get() {
+            return;
+        }
+        if self.next.borrow().is_none() || self.focus_pages.get() >= FOCUS_PAGES {
+            self.focus.set(None);
+            if let Some(window) = self.window.upgrade() {
+                window.toast(&gettext("That line is too far back to show here."));
+            }
+            return;
+        }
+        self.focus_pages.set(self.focus_pages.get() + 1);
+        self.load_older();
+    }
+
+    /// Bring a row to the upper part of the view and outline it briefly.
+    fn scroll_to(self: &Rc<Self>, row: &gtk::Widget) {
+        self.pinned.set(false);
+        row.add_css_class("focused");
+        let place = glib::clone!(
+            #[weak(rename_to = view)]
+            self,
+            #[weak]
+            row,
+            move || {
+                let Some(viewport) = view.scroller.child() else {
+                    return;
+                };
+                let Some(point) = row.compute_point(&viewport, &gtk::graphene::Point::zero())
+                else {
+                    return;
+                };
+                let adjustment = view.scroller.vadjustment();
+                let target =
+                    adjustment.value() + f64::from(point.y()) - adjustment.page_size() / 4.0;
+                adjustment
+                    .set_value(target.clamp(0.0, adjustment.upper() - adjustment.page_size()));
+            }
+        );
+        // Once laid out, and again when late pictures above have settled.
+        glib::idle_add_local_once(place.clone());
+        glib::timeout_add_local_once(std::time::Duration::from_millis(400), place);
+        glib::timeout_add_local_once(
+            std::time::Duration::from_millis(2500),
+            glib::clone!(
+                #[weak]
+                row,
+                move || row.remove_css_class("focused")
+            ),
+        );
+    }
+
     /// A line that just arrived over the feed. Dropped if it's already
     /// shown (we posted it, or the feed repeated itself).
     pub fn append_live(self: &Rc<Self>, line: &ChatLine) {
@@ -257,7 +337,9 @@ impl ChatView {
                                         let grown = adjustment.upper() - before;
                                         adjustment.set_value(adjustment.value() + grown.max(0.0));
                                     }
-                                    if adjustment.upper() <= adjustment.page_size() {
+                                    if view.focus.get().is_some() {
+                                        view.seek_focus();
+                                    } else if adjustment.upper() <= adjustment.page_size() {
                                         view.load_older();
                                     }
                                 }
@@ -521,6 +603,38 @@ impl ChatView {
         picture.upcast()
     }
 
+    /// A click on someone's face or name opens what they're up to in the
+    /// project, from its AI summary; a ping has no project, so no page.
+    fn open_person_on_click(&self, widget: &impl IsA<gtk::Widget>, line: &ChatLine) {
+        let bucket = &line.recording.bucket;
+        let Some(window) = self.window.upgrade() else {
+            return;
+        };
+        if bucket.kind != "Project" || super::summary::backend(&window).is_none() {
+            return;
+        }
+        let person = line.recording.creator.clone();
+        widget.set_tooltip_text(Some(&crate::i18n::format(
+            &gettext("What {name} is up to"),
+            &[("name", &person.name)],
+        )));
+        widget.set_cursor_from_name(Some("pointer"));
+        let click = gtk::GestureClick::new();
+        let client = self.client.clone();
+        let project_id = bucket.id;
+        click.connect_released(move |gesture, _, _, _| {
+            gesture.set_state(gtk::EventSequenceState::Claimed);
+            if let Some(window) = gesture
+                .widget()
+                .and_then(|w| w.root())
+                .and_downcast::<SkaliWindow>()
+            {
+                window.open_person_in(client.clone(), project_id, person.clone());
+            }
+        });
+        widget.add_controller(click);
+    }
+
     /// One line, as a bubble: yours on the right, everyone else's on the
     /// left. In a run of lines by the same person within minutes, only the
     /// first carries the avatar, name and time.
@@ -555,6 +669,7 @@ impl ChatView {
         } else {
             let avatar = avatar(&line.recording.creator, AVATAR_SIZE);
             avatar.set_valign(gtk::Align::Start);
+            self.open_person_on_click(&avatar, line);
             avatar.upcast()
         };
         // The bubble and its boost button, pushed to the line's side; the
@@ -592,6 +707,7 @@ impl ChatView {
                 })
                 .css_classes(["chat-name"])
                 .build();
+            self.open_person_on_click(&name, line);
             let time = gtk::Label::builder()
                 .label(time_label(line.recording.created_at))
                 .css_classes(["dim-label", "caption"])
@@ -677,6 +793,9 @@ impl ChatView {
             row.append(&face);
             row.append(&lane);
         }
+        self.rows
+            .borrow_mut()
+            .insert(line.recording.id, row.clone().upcast());
         row.upcast()
     }
 }
@@ -726,6 +845,9 @@ pub fn page(
         boosts: RefCell::new(HashMap::new()),
         me: RefCell::new(None),
         pinned: Cell::new(true),
+        rows: RefCell::new(HashMap::new()),
+        focus: Cell::new(None),
+        focus_pages: Cell::new(0),
     });
     window.watch_chat(&view);
     view.load_first();

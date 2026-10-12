@@ -1,5 +1,6 @@
 //! A project: its tools, as the web app's dock shows them, each a row that
 //! opens the tool. Several of one kind (three Chats) are simply several rows.
+//! Above them, with AI summaries on, the project's summary.
 
 use super::shell;
 use crate::i18n::gettext;
@@ -35,6 +36,9 @@ pub fn page(window: &SkaliWindow, client: Client, project: Project) -> adw::Navi
             .margin_bottom(12)
             .build();
         content.append(&label);
+    }
+    if let Some(summary) = super::summary::project_row(window, &client, &project) {
+        content.append(&summary);
     }
     let tools = gtk::ListBox::builder()
         .selection_mode(gtk::SelectionMode::None)
