@@ -16,6 +16,16 @@
 			<summary>KLIPY API key</summary>
 			<description>The key GIF search uses, free from partner.klipy.com. Empty turns GIF search off.</description>
 		</key>
+		<key name="summarizer" type="s">
+			<choices>
+				<choice value="off"/>
+				<choice value="claude"/>
+				<choice value="codex"/>
+			</choices>
+			<default>'claude'</default>
+			<summary>What writes AI summaries</summary>
+			<description>The coding agent Skali runs, signed in as you, to summarize a project when you ask: claude (Claude Code), codex (Codex), or off.</description>
+		</key>
 		<key name="window-width" type="i">
 			<range min="360" max="10000"/>
 			<default>1400</default>

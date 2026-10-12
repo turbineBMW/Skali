@@ -88,6 +88,12 @@ pub struct State {
     pub feeds: HashMap<i64, glib::JoinHandle<()>>,
     /// A sign-in waiting for the browser to come back.
     pub sign_in: Option<sign_in::PendingSignIn>,
+    /// Summaries being written, by project id, with how many items the
+    /// agent is reading (none while they're still being fetched).
+    pub summarizing: HashMap<i64, Option<usize>>,
+    /// The summary pages open now, by project id, to redraw when a
+    /// summary is done.
+    pub summary_views: HashMap<i64, Vec<std::rc::Weak<crate::pages::summary::SummaryView>>>,
 }
 
 mod imp {
@@ -774,8 +780,10 @@ impl SkaliWindow {
         }
         let mut parts = target.split(':');
         let project_id = parts.next().and_then(|p| p.parse::<i64>().ok());
-        let tool_id = parts.next().and_then(|t| t.parse::<i64>().ok());
-        let first = parts.next() == Some("first");
+        let tool = parts.next();
+        let tool_id = tool.and_then(|t| t.parse::<i64>().ok());
+        let third = parts.next();
+        let first = third == Some("first");
         let project = self
             .state()
             .projects
@@ -790,6 +798,23 @@ impl SkaliWindow {
             return;
         };
         self.open_project(account_id, project.clone());
+        if tool == Some("summary") {
+            // `<project>:summary[:<person id>]`
+            let summary = self
+                .db()
+                .borrow()
+                .latest_summary(account_id, project.id)
+                .ok()
+                .flatten();
+            let person = third
+                .and_then(|id| id.parse::<i64>().ok())
+                .and_then(|id| summary.as_ref()?.person(id).cloned());
+            match person {
+                Some(person) => self.open_person_summary(client, project, person),
+                None => self.open_summary(client, project),
+            }
+            return;
+        }
         if let Some(tool) = project.dock.iter().find(|t| Some(t.id) == tool_id) {
             self.open_tool(client.clone(), &project, tool);
             if first {

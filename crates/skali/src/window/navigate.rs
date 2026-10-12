@@ -12,7 +12,8 @@ use skali_core::api::Client;
 use skali_core::error::{ApiError, Result};
 use skali_core::links::{self, AppLink};
 use skali_core::models::{
-    Campfire, Card, DockTool, Document, Message, Project, ScheduleEntry, Todo, Todolist, Upload,
+    Campfire, Card, DockTool, Document, Message, Person, Project, ScheduleEntry, Todo, Todolist,
+    Upload,
 };
 use std::future::Future;
 
@@ -120,12 +121,58 @@ impl SkaliWindow {
                 campfire.recording.bucket.name, campfire.recording.title
             )
         };
-        self.imp().content_nav.push(&pages::chat::page(
-            self,
-            client,
-            &title,
-            campfire.recording.id,
-        ));
+        // Open already (a link from a page pushed on top of it): go back to it.
+        let nav = &self.imp().content_nav;
+        match nav.find_page(&format!("chat-{}", campfire.recording.id)) {
+            Some(open) => {
+                nav.pop_to_page(&open);
+            }
+            None => nav.push(&pages::chat::page(
+                self,
+                client,
+                &title,
+                campfire.recording.id,
+            )),
+        };
+    }
+
+    /// Scroll an open chat page to one of its lines.
+    fn focus_chat_line(&self, chat_id: i64, line_id: i64) {
+        let view = self
+            .state()
+            .live_chats
+            .get(&chat_id)
+            .and_then(|view| view.upgrade());
+        if let Some(view) = view {
+            view.focus_line(line_id);
+        }
+    }
+
+    /// The project's AI summary.
+    pub fn open_summary(&self, client: Client, project: Project) {
+        self.imp()
+            .content_nav
+            .push(&pages::summary::page(self, client, project));
+    }
+
+    /// What one person is up to in a project, from its summary.
+    pub fn open_person_summary(&self, client: Client, project: Project, person: Person) {
+        self.imp()
+            .content_nav
+            .push(&pages::summary::person_page(self, client, project, person));
+    }
+
+    /// `open_person_summary` for a project known by id (a chat line's).
+    pub fn open_person_in(&self, client: Client, project_id: i64, person: Person) {
+        let project = self
+            .state()
+            .projects
+            .get(&client.account_id())
+            .and_then(|projects| projects.iter().find(|p| p.id == project_id).cloned());
+        match project {
+            Some(project) => self.open_person_summary(client, project, person),
+            None => tracing::warn!("project {project_id} isn't listed; no summary to show"),
+        }
     }
 
     pub fn open_tool(&self, client: Client, project: &Project, tool: &DockTool) {
@@ -214,7 +261,7 @@ impl SkaliWindow {
     /// Open a Basecamp web link (an `app_url`, a link in rich text) on a
     /// page of Skali's own when there is one: the recording is fetched
     /// with the client of the link's account, then shown, scrolled to the
-    /// comment the link names. `false` for a link Skali has no page for,
+    /// comment (or chat line) the link names. `false` for a link Skali has no page for,
     /// or of an account it isn't signed in to, which the caller opens in
     /// the browser instead.
     pub fn open_app_url(&self, url: &str) -> bool {
@@ -225,6 +272,7 @@ impl SkaliWindow {
             return false;
         };
         let focus = link.recording_id().zip(links::comment_of(url));
+        let line = links::line_of(url);
         let get = client.clone();
         let url = url.to_string();
         match link {
@@ -233,7 +281,12 @@ impl SkaliWindow {
                 url,
                 focus,
                 async move { get.get::<Campfire>(&format!("/chats/{id}.json")).await },
-                |window, client, chat| window.open_campfire(client, &chat),
+                move |window, client, chat| {
+                    window.open_campfire(client, &chat);
+                    if let Some(line_id) = line {
+                        window.focus_chat_line(chat.recording.id, line_id);
+                    }
+                },
             ),
             AppLink::Message(id) => self.open_fetched(
                 client,

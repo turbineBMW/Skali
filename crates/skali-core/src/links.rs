@@ -114,6 +114,13 @@ pub fn comment_of(url: &str) -> Option<i64> {
         .ok()
 }
 
+/// The chat line a link points at: `.../chats/<chat>@<line>`.
+pub fn line_of(url: &str) -> Option<i64> {
+    let segments = basecamp_path(url)?;
+    let chat = segments.windows(2).find(|pair| pair[0] == "chats")?[1];
+    chat.split_once('@')?.1.parse().ok()
+}
+
 /// The path segments of an `https` link on a Basecamp web host, without
 /// any query or fragment.
 fn basecamp_path(url: &str) -> Option<Vec<&str>> {
@@ -131,6 +138,17 @@ mod tests {
     use super::*;
 
     const BASE: &str = "https://3.basecamp.com/1000001/buckets/2000002";
+
+    #[test]
+    fn a_chat_link_may_name_a_line() {
+        assert_eq!(
+            line_of(&format!("{BASE}/chats/7@10392386011")),
+            Some(10392386011)
+        );
+        assert_eq!(line_of(&format!("{BASE}/chats/7")), None);
+        assert_eq!(line_of(&format!("{BASE}/messages/7@8")), None);
+        assert_eq!(line_of("https://example.com/1/buckets/2/chats/7@8"), None);
+    }
 
     #[test]
     fn links_to_what_skali_shows() {

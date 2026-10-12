@@ -11,6 +11,7 @@ use adw::subclass::prelude::*;
 use gtk::gio;
 use gtk::glib;
 use skali_core::models::Account;
+use skali_core::summary::Backend;
 
 mod imp {
     use super::*;
@@ -28,6 +29,8 @@ mod imp {
         pub notifications_row: TemplateChild<adw::SwitchRow>,
         #[template_child]
         pub klipy_key_row: TemplateChild<adw::PasswordEntryRow>,
+        #[template_child]
+        pub summarizer_row: TemplateChild<adw::ComboRow>,
     }
 
     #[glib::object_subclass]
@@ -74,6 +77,7 @@ impl PreferencesDialog {
         settings
             .bind(keys::KLIPY_API_KEY, &*imp.klipy_key_row, "text")
             .build();
+        bind_summarizer(settings, &imp.summarizer_row);
         imp.add_account_button.connect_clicked(glib::clone!(
             #[weak]
             window,
@@ -122,4 +126,41 @@ impl PreferencesDialog {
         }
         dialog
     }
+}
+
+/// The summarizer setting's values, in the combo row's order.
+const SUMMARIZERS: [&str; 3] = ["off", "claude", "codex"];
+
+/// The combo row picks the `summarizer` setting, and says when the program
+/// it names isn't to be found.
+fn bind_summarizer(settings: &gio::Settings, row: &adw::ComboRow) {
+    let explain = |row: &adw::ComboRow, value: &str| {
+        let missing = Backend::from_setting(value).filter(|backend| backend.find().is_none());
+        row.set_subtitle(&match missing {
+            Some(backend) => glib::markup_escape_text(&crate::i18n::format(
+                &gettext("“{program}” isn't installed, or Skali can't find it"),
+                &[("program", backend.setting())],
+            ))
+            .to_string(),
+            None => String::new(),
+        });
+    };
+    let value = settings.string(keys::SUMMARIZER);
+    let index = SUMMARIZERS.iter().position(|v| *v == value).unwrap_or(0);
+    row.set_selected(index as u32);
+    explain(row, &value);
+    row.connect_selected_notify(glib::clone!(
+        #[strong]
+        settings,
+        move |row| {
+            let value = SUMMARIZERS
+                .get(row.selected() as usize)
+                .copied()
+                .unwrap_or("off");
+            if let Err(error) = settings.set_string(keys::SUMMARIZER, value) {
+                tracing::warn!("could not save the summarizer: {error}");
+            }
+            explain(row, value);
+        }
+    ));
 }

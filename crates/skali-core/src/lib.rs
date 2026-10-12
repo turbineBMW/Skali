@@ -16,6 +16,7 @@ pub mod omarchy;
 pub mod richtext;
 pub mod schedule;
 pub mod secrets;
+pub mod summary;
 
 /// What Basecamp sees in the `User-Agent` header, which it requires: the
 /// app's name and where to find it.

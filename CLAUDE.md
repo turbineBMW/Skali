@@ -26,7 +26,7 @@ always has debug. To exercise the app without touching real data: `XDG_DATA_HOME
 
 Dev hooks: `skali api [GET|POST|PUT|DELETE] <path> [json]` makes one raw call with the stored
 sign-in and prints the body (writes obey the guard below); `SKALI_API_ACCOUNT=<id>` picks the
-account, else the first. `SKALI_DEBUG_OPEN=<project>[:<tool>[:first]]`
+account, else the first. `SKALI_DEBUG_OPEN=<project>[:<tool>[:first]|:summary[:<person>]]`
 or `=hey|pings|assignments|bookmarks|timeline|notes|search[:<words>]`, or `=<app_url>` (routed as a Hey! row is) opens
 that page at launch (for the account `SKALI_DEBUG_ACCOUNT=<id>` names, with several). The sandbox project and its tool ids are in `CLAUDE.local.md`
 (untracked). For a screenshot on Hyprland:
@@ -68,6 +68,9 @@ crates/skali-core/src/     no widgets; everything here is unit-tested (`cargo te
                Event. Thin pointers: refetch the recording before showing anything.
   richtext.rs  HTML -> Pango markup / plain text / excerpt; expand_attachments for the WebKit view;
                text_to_html for composing
+  summary.rs   AI summaries: gather a project's chats + boards since the last summary, prompt,
+               run `claude -p` / `codex exec` (no MCP, no settings, WebFetch only to linked
+               sites) for a Digest in a fixed JSON schema; kept in db `summaries`
   omarchy.rs   Omarchy theme palette -> CSS;  darkmode.rs  HTML dark-mode rewrite (for the
                rich-text view)
 crates/skali/src/          the GTK layer
@@ -77,7 +80,8 @@ crates/skali/src/          the GTK layer
   window/      SkaliWindow: mod.rs (State, sidebar, projects, Hey! count + notifications),
                sign_in.rs (OAuth flow, refresh), navigate.rs (pushing pages), live.rs (one feed
                per account; registry of open chat/message pages that live events update)
-  pages/       one module per page kind: project, chat (ChatView: paging, composer, live
+  pages/       one module per page kind: project, summary (a project's AI digest and one
+               person's part; a chat avatar opens the latter), chat (ChatView: paging, composer, live
                lines), messages (board list; MessagePage: WebKit document of body + comments,
                images inlined as data: URIs), todos, hey, pings, assignments
   dialogs/     preferences.rs (accounts with sign-out, theme and notification switches)

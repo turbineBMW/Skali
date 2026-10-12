@@ -15,6 +15,7 @@ pub mod project;
 pub mod recording;
 pub mod schedule;
 pub mod search;
+pub mod summary;
 pub mod timeline;
 pub mod todos;
 

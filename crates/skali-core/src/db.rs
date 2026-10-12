@@ -5,6 +5,7 @@
 
 use crate::error::Result;
 use crate::models::{Account, Project, Recording, SearchResult, Searchable};
+use crate::summary::Summary;
 use rusqlite::{Connection, params};
 use std::path::Path;
 
@@ -60,10 +61,21 @@ const MIGRATIONS: &[&str] = &[
         VALUES ('delete', old.id, old.title, old.text);
         INSERT INTO recordings_fts (rowid, title, text) VALUES (new.id, new.title, new.text);
     END;",
+    // 4: AI summaries of a project, each whole as JSON, newest kept.
+    "CREATE TABLE summaries (
+        id INTEGER PRIMARY KEY,
+        account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        project_id INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        json TEXT NOT NULL
+    );
+    CREATE INDEX summaries_project ON summaries(account_id, project_id, created_at);",
 ];
 
 /// The most recordings the index keeps per account; the oldest go first.
 pub const INDEX_LIMIT: usize = 100_000;
+/// The summaries kept per project, the newest.
+const SUMMARIES_KEPT: i64 = 20;
 
 pub struct Database {
     conn: Connection,
@@ -303,6 +315,82 @@ impl Database {
             )",
             params![keep as i64],
         )?)
+    }
+
+    /// Keep a project's new summary, and only the latest few before it.
+    pub fn store_summary(&mut self, account_id: i64, summary: &Summary) -> Result<()> {
+        let tx = self.conn.transaction()?;
+        tx.execute(
+            "INSERT INTO summaries (account_id, project_id, created_at, json) VALUES (?1, ?2, ?3, ?4)",
+            params![
+                account_id,
+                summary.project_id,
+                summary.created_at.to_rfc3339(),
+                serde_json::to_string(summary)?
+            ],
+        )?;
+        tx.execute(
+            "DELETE FROM summaries WHERE account_id = ?1 AND project_id = ?2 AND id NOT IN (
+                SELECT id FROM summaries WHERE account_id = ?1 AND project_id = ?2
+                ORDER BY created_at DESC, id DESC LIMIT ?3
+            )",
+            params![account_id, summary.project_id, SUMMARIES_KEPT],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// A project's newest summary, if it has one.
+    pub fn latest_summary(&self, account_id: i64, project_id: i64) -> Result<Option<Summary>> {
+        let json: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT json FROM summaries WHERE account_id = ?1 AND project_id = ?2
+                 ORDER BY created_at DESC, id DESC LIMIT 1",
+                params![account_id, project_id],
+                |row| row.get(0),
+            )
+            .ok();
+        Ok(json.and_then(|json| match serde_json::from_str(&json) {
+            Ok(summary) => Some(summary),
+            // From an older model: as good as none; the next run replaces it.
+            Err(error) => {
+                tracing::warn!("a kept summary did not parse: {error}");
+                None
+            }
+        }))
+    }
+
+    /// What a person said lately in a project, of what Skali has kept,
+    /// newest first, each with its words.
+    pub fn said_by(
+        &self,
+        account_id: i64,
+        project_id: i64,
+        person_id: i64,
+        limit: usize,
+    ) -> Result<Vec<SearchResult>> {
+        let mut statement = self.conn.prepare(
+            "SELECT json, text FROM recordings
+             WHERE account_id = ?1 AND json_extract(json, '$.bucket.id') = ?2
+               AND json_extract(json, '$.creator.id') = ?3 AND text != ''
+             ORDER BY created_at DESC LIMIT ?4",
+        )?;
+        let rows = statement.query_map(
+            params![account_id, project_id, person_id, limit as i64],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        )?;
+        let mut results = Vec::new();
+        for row in rows {
+            let (json, text) = row?;
+            if let Ok(recording) = serde_json::from_str::<Recording>(&json) {
+                results.push(SearchResult {
+                    recording,
+                    plain_text_content: text,
+                });
+            }
+        }
+        Ok(results)
     }
 
     pub fn meta(&self, key: &str) -> Result<Option<String>> {
@@ -548,6 +636,65 @@ mod tests {
             fts_query("say \"hi\" OR NEAR(x"),
             Some("\"say\" \"hi\" \"OR\" \"NEAR(x\"*".into())
         );
+    }
+
+    #[test]
+    fn summaries_keep_the_newest_per_project() {
+        use crate::summary::{Backend, Digest, Gathered, Summary};
+        let mut db = Database::open_in_memory().unwrap();
+        db.upsert_account(&account()).unwrap();
+        assert_eq!(db.latest_summary(1000001, 5).unwrap(), None);
+        let summary = |overview: &str, minutes_ago: i64| {
+            let mut s = Summary::new(
+                5,
+                Backend::Claude,
+                &Gathered::default(),
+                None,
+                Digest {
+                    overview: overview.into(),
+                    ..Default::default()
+                },
+            );
+            s.created_at = chrono::Utc::now() - chrono::Duration::minutes(minutes_ago);
+            s
+        };
+        for n in 0..25 {
+            db.store_summary(1000001, &summary(&format!("run {n}"), 100 - n))
+                .unwrap();
+        }
+        let latest = db.latest_summary(1000001, 5).unwrap().unwrap();
+        assert_eq!(latest.digest.overview, "run 24");
+        let kept: i64 = db
+            .conn
+            .query_row("SELECT count(*) FROM summaries", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(kept, SUMMARIES_KEPT);
+        assert_eq!(db.latest_summary(1000001, 6).unwrap(), None);
+        db.remove_account(1000001).unwrap();
+        assert_eq!(db.latest_summary(1000001, 5).unwrap(), None);
+    }
+
+    #[test]
+    fn what_a_person_said_comes_from_the_index() {
+        let mut db = Database::open_in_memory().unwrap();
+        db.upsert_account(&account()).unwrap();
+        let mut theirs = line(1, "first", 30);
+        theirs.recording.creator.id = 7;
+        let mut newer = line(2, "second", 10);
+        newer.recording.creator.id = 7;
+        let mut elsewhere = line(3, "elsewhere", 5);
+        elsewhere.recording.creator.id = 7;
+        elsewhere.recording.bucket.id = 2;
+        let mine = line(4, "mine", 1);
+        db.index_recordings(1000001, &[theirs, newer, elsewhere, mine])
+            .unwrap();
+        let said: Vec<String> = db
+            .said_by(1000001, 1, 7, 10)
+            .unwrap()
+            .into_iter()
+            .map(|r| r.plain_text_content)
+            .collect();
+        assert_eq!(said, ["second", "first"]);
     }
 
     #[test]

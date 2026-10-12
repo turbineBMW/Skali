@@ -17,6 +17,7 @@ static FIGCAPTION: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?s)<figcaption[^>]*>(.*?)</figcaption>").unwrap());
 static WHITESPACE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[ \t\r\n]+").unwrap());
 static IMG: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)<img\b[^>]*>").unwrap());
+static LINK: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?is)<a\b([^>]*)>(.*?)</a>").unwrap());
 
 /// What `markup_with_mentions` leaves where each mention was: the object
 /// replacement character, for a label to put a widget on.
@@ -189,6 +190,32 @@ pub fn plain_text(html: &str) -> String {
         lines.pop();
     }
     lines.join("\n")
+}
+
+/// `plain_text` with each link's address kept: `words (url)`, or just the
+/// url when that is what the words were. For reading by something that
+/// may follow them (a summary).
+pub fn text_with_links(html: &str) -> String {
+    let text = LINK.replace_all(html, |c: &regex::Captures| {
+        let href = ATTRIBUTE
+            .captures_iter(&c[1])
+            .find(|a| a[1].eq_ignore_ascii_case("href"))
+            .map(|a| decode_entities(&a[2]));
+        let words = plain_text(&c[2]);
+        match href {
+            Some(href) if href.starts_with("http") => {
+                let words = words.trim();
+                if words.is_empty() || words == href || href.contains(words.trim_end_matches('…'))
+                {
+                    escape(&href)
+                } else {
+                    format!("{} ({})", escape(words), escape(&href))
+                }
+            }
+            _ => escape(&words),
+        }
+    });
+    plain_text(&text)
 }
 
 /// One line for a list row: the plain text, whitespace collapsed, cut at
@@ -467,6 +494,17 @@ mod tests {
     fn plain_text_strips_and_breaks() {
         let html = "<div>Hello <strong>there</strong><br>second</div><div>&amp; third &#8217;s</div><div></div>";
         assert_eq!(plain_text(html), "Hello there\nsecond\n& third ’s");
+    }
+
+    #[test]
+    fn links_keep_their_addresses() {
+        let html = r#"<div>See <a href="https://github.com/o/r/pull/7?a=1&amp;b=2">the fix</a>, and
+            <a href="https://example.com/x">https://example.com/x</a> or
+            <a href="https://github.com/o/r/pull/9">github.com/o/r/pull/9</a><br><a href="mailto:a@b.c">mail</a></div>"#;
+        assert_eq!(
+            text_with_links(html),
+            "See the fix (https://github.com/o/r/pull/7?a=1&b=2), and\nhttps://example.com/x or\nhttps://github.com/o/r/pull/9\nmail"
+        );
     }
 
     #[test]
